@@ -2,7 +2,7 @@
 
 ## Overview
 
-**CogniGraph Chunker** is an actively maintained text chunking toolkit delivered as **CLI**, **REST API**, and **Python bindings**.
+**CogniGraph Chunker** is an actively maintained text chunking toolkit delivered as **CLI**, **REST API**, **Python bindings**, and **Docker container**.
 
 Three chunking strategies:
 
@@ -27,34 +27,6 @@ Sample documents for testing are available at `/Users/skitsanos/FTP/Products/Cog
 - [x] Add direct dependencies: `memchr`, `daggrs` (previously owned by `chunk`)
 - [x] Add CLI dependencies: `clap` (derive), `serde`, `serde_json`, `tokio`
 - [x] Verify core modules compile and existing tests pass (32 tests)
-- [ ] Set up module structure:
-  ```
-  src/
-  ├── main.rs            # CLI entrypoint
-  ├── core/              # Ported from chunk library
-  │   ├── mod.rs
-  │   ├── chunk.rs       # Size-based chunking
-  │   ├── split.rs       # Delimiter splitting
-  │   ├── merge.rs       # Token-aware merging
-  │   ├── delim.rs       # Shared delimiter utilities
-  │   └── savgol.rs      # Savitzky-Golay & signal processing
-  ├── cli/               # CLI subcommands
-  │   ├── mod.rs
-  │   ├── chunk_cmd.rs
-  │   ├── split_cmd.rs
-  │   ├── semantic_cmd.rs
-  │   └── serve_cmd.rs   # Phase 8
-  ├── embeddings/        # Embedding providers
-  │   ├── mod.rs
-  │   ├── openai.rs
-  │   ├── ollama.rs
-  │   └── onnx.rs
-  ├── semantic/          # Semantic chunking pipeline
-  │   ├── mod.rs
-  │   ├── sentence.rs    # Sentence splitting
-  │   └── pipeline.rs    # S-G pipeline orchestration
-  └── output.rs          # Output formatting (plain/json/jsonl)
-  ```
 - [x] Define shared types and output module
 
 ## Phase 2: Fixed-Size Chunking (CLI)
@@ -109,18 +81,19 @@ Sample documents for testing are available at `/Users/skitsanos/FTP/Products/Cog
 
 ---
 
-## Phase 8: REST API (after CLI is complete)
+## Phase 8: REST API
 
 - [x] Add `serve` subcommand using `axum` + `tokio`
-- [x] `POST /chunk` — fixed-size chunking
-- [x] `POST /split` — delimiter splitting
-- [x] `POST /semantic` — semantic chunking
-- [x] `POST /merge` — token-aware merging
-- [x] Request body: JSON with `text` + method-specific params
-- [x] Response: JSON array of chunks with metadata (offsets, token counts)
-- [x] Health endpoint: `GET /health`
+- [x] `POST /api/v1/chunk` — fixed-size chunking
+- [x] `POST /api/v1/split` — delimiter splitting
+- [x] `POST /api/v1/semantic` — semantic chunking
+- [x] `POST /api/v1/merge` — token-aware merging
+- [x] `GET /api/v1/health` — health check (no auth)
 - [x] Configurable bind address: `--host`, `--port`
-- [x] Optional: API key auth via `--api-key` or env var
+- [x] Bearer token auth via `--api-key` or `--no-auth`
+- [x] CORS configuration via `--cors-origin`
+- [x] SSRF protection: private IP validation on embedding provider URLs
+- [x] Request body limit (10 MiB) and timeout (120s)
 
 ## Phase 9: Python Bindings
 
@@ -132,8 +105,21 @@ Sample documents for testing are available at `/Users/skitsanos/FTP/Products/Cog
 - [x] Expose signal processing: `savgol_filter()`, `windowed_cross_similarity()`, `find_local_minima()`, `filter_split_indices()`
 - [x] `SemanticConfig` and `SemanticResult` classes with full field access
 - [x] Python test suite: 27 tests (chunker, splitter, merge, signal, semantic)
-- [ ] NumPy integration for array inputs/outputs
+- [x] NumPy integration: signal functions return `numpy.ndarray`, accept array inputs, `*_array()` properties on result types
 - [ ] Publish to PyPI as `cognigraph-chunker`
+
+## Phase 10: Production Readiness
+
+- [x] Security hardening: CORS allowlist, SSRF private IP blocking, error categorization, base URL validation
+- [x] Reliable error handling: `anyhow::Result` on provider constructors, no silent `unwrap_or_default`
+- [x] Clippy clean: zero warnings across workspace
+- [x] Criterion benchmarks: 30+ benchmarks across 6 groups (chunking, splitting, merging, signal, markdown, sentences)
+- [x] README documentation: CLI, REST API, Python API, Docker deployment
+- [x] Dockerfile: multi-stage build, ONNX Runtime `load-dynamic`, Railway/Render/Fly.io compatible
+- [x] `.dockerignore` for minimal build context
+- [ ] CI/CD pipeline (GitHub Actions: test, clippy, build Docker image)
+- [ ] Publish to crates.io
+- [ ] Publish Python package to PyPI
 
 ---
 
@@ -144,10 +130,18 @@ Sample documents for testing are available at `/Users/skitsanos/FTP/Products/Cog
 | `memchr` | SIMD-accelerated byte searching (from chunk core) |
 | `daggrs` | Aho-Corasick multi-byte pattern matching (from chunk core) |
 | `clap` | CLI argument parsing |
+| `clap_complete` | Shell completion generation |
 | `tokio` | Async runtime |
 | `reqwest` | HTTP client (OpenAI, Ollama) |
 | `serde` / `serde_json` | Serialization |
-| `ort` | ONNX Runtime for local embeddings |
+| `ort` | ONNX Runtime for local embeddings (load-dynamic) |
+| `tokenizers` | Tokenizer for ONNX models |
+| `ndarray` | N-dimensional arrays (used by ort) |
 | `unicode-segmentation` | Sentence boundary detection |
-| `axum` | REST API server (Phase 8) |
-| `pyo3` | Python bindings (Phase 9) |
+| `pulldown-cmark` | Markdown AST parsing |
+| `axum` | REST API server |
+| `tower-http` | CORS, timeout, request limits middleware |
+| `url` | URL parsing for SSRF validation |
+| `pyo3` | Python bindings |
+| `numpy` | NumPy array interop for Python bindings |
+| `criterion` | Benchmarks (dev-dependency) |
