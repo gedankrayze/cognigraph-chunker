@@ -326,6 +326,7 @@ dependencies = [
  "tokio",
  "tower-http",
  "unicode-segmentation",
+ "url",
 ]
 
 [[package]]
@@ -2408,8 +2409,10 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "iri-string",
  "pin-project-lite",
+ "tokio",
  "tower",
  "tower-layer",
  "tower-service",

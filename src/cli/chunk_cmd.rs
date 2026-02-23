@@ -50,7 +50,7 @@ pub struct ChunkArgs {
 }
 
 pub fn run(args: &ChunkArgs, global: &GlobalOpts) -> anyhow::Result<()> {
-    let text = read_input(&args.input)?;
+    let text = read_input(&args.input, global.max_input_size)?;
 
     global.detail(&format!(
         "[chunk] input: {} bytes, target size: {} bytes",
@@ -96,10 +96,15 @@ pub fn run(args: &ChunkArgs, global: &GlobalOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_input(input: &str) -> anyhow::Result<Vec<u8>> {
+fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
     if input == "-" {
         let mut buf = Vec::new();
-        io::stdin().read_to_end(&mut buf)?;
+        io::stdin().take(max_size as u64 + 1).read_to_end(&mut buf)?;
+        anyhow::ensure!(
+            buf.len() <= max_size,
+            "Stdin input exceeds maximum allowed size ({max_size} bytes). \
+             Use --max-input-size to increase the limit."
+        );
         Ok(buf)
     } else {
         let path = PathBuf::from(input);
@@ -107,6 +112,13 @@ fn read_input(input: &str) -> anyhow::Result<Vec<u8>> {
             path.exists(),
             "File not found: {}\nCheck the path and try again.",
             path.display()
+        );
+        let meta = std::fs::metadata(&path)?;
+        anyhow::ensure!(
+            meta.len() <= max_size as u64,
+            "File size ({} bytes) exceeds maximum allowed size ({max_size} bytes). \
+             Use --max-input-size to increase the limit.",
+            meta.len()
         );
         Ok(std::fs::read(&path)?)
     }

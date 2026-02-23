@@ -50,7 +50,10 @@ pulldown-cmark = "0.13"
 
 # Web framework
 axum = "0.8"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "timeout", "limit"] }
+
+# URL parsing (SSRF validation)
+url = "2"
 
 # Error handling
 anyhow = "1.0"

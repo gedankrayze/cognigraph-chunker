@@ -16,13 +16,18 @@ pub struct OpenAiProvider {
 }
 
 impl OpenAiProvider {
-    pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
+    pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> anyhow::Result<Self> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .context("Failed to build HTTP client for OpenAI provider")?;
+        Ok(Self {
+            client,
             api_key,
             base_url: base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
             model: model.unwrap_or_else(|| "text-embedding-3-small".to_string()),
-        }
+        })
     }
 }
 

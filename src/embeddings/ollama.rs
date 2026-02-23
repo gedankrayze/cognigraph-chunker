@@ -13,12 +13,17 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
-    pub fn new(base_url: Option<String>, model: Option<String>) -> Self {
-        Self {
-            client: reqwest::Client::new(),
+    pub fn new(base_url: Option<String>, model: Option<String>) -> anyhow::Result<Self> {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .context("Failed to build HTTP client for Ollama provider")?;
+        Ok(Self {
+            client,
             base_url: base_url.unwrap_or_else(|| "http://localhost:11434".to_string()),
             model: model.unwrap_or_else(|| "nomic-embed-text".to_string()),
-        }
+        })
     }
 }
 

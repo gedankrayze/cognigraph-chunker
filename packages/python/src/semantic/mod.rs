@@ -1,5 +1,7 @@
 pub mod providers;
 
+use std::sync::LazyLock;
+
 use pyo3::prelude::*;
 
 use cognigraph_chunker::embeddings::EmbeddingProvider;
@@ -8,6 +10,11 @@ use cognigraph_chunker::semantic::{SemanticConfig as RustSemanticConfig, semanti
 use crate::error::to_py_err;
 use crate::signal::PyFilteredIndices;
 use providers::{PyOllamaProvider, PyOnnxProvider, PyOpenAiProvider};
+
+/// Shared Tokio runtime for all Python → async Rust calls.
+static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+    tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime")
+});
 
 #[pyclass(name = "SemanticConfig")]
 #[derive(Clone)]
@@ -22,18 +29,21 @@ pub struct PySemanticConfig {
     pub threshold: f64,
     #[pyo3(get, set)]
     pub min_distance: usize,
+    #[pyo3(get, set)]
+    pub max_blocks: usize,
 }
 
 #[pymethods]
 impl PySemanticConfig {
     #[new]
-    #[pyo3(signature = (*, sim_window=3, sg_window=11, poly_order=3, threshold=0.5, min_distance=2))]
+    #[pyo3(signature = (*, sim_window=3, sg_window=11, poly_order=3, threshold=0.5, min_distance=2, max_blocks=10_000))]
     fn new(
         sim_window: usize,
         sg_window: usize,
         poly_order: usize,
         threshold: f64,
         min_distance: usize,
+        max_blocks: usize,
     ) -> Self {
         Self {
             sim_window,
@@ -41,6 +51,7 @@ impl PySemanticConfig {
             poly_order,
             threshold,
             min_distance,
+            max_blocks,
         }
     }
 }
@@ -53,6 +64,7 @@ impl From<&PySemanticConfig> for RustSemanticConfig {
             poly_order: py.poly_order,
             threshold: py.threshold,
             min_distance: py.min_distance,
+            max_blocks: py.max_blocks,
         }
     }
 }
@@ -116,10 +128,7 @@ fn run_semantic<P: EmbeddingProvider>(
     config: &RustSemanticConfig,
     markdown: bool,
 ) -> PyResult<PySemanticResult> {
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(format!("Failed to create runtime: {e}")))?;
-
-    let result = rt.block_on(async {
+    let result = RUNTIME.block_on(async {
         if markdown {
             semantic_chunk(text, provider, config).await
         } else {

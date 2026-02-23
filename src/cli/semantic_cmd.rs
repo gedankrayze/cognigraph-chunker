@@ -78,7 +78,7 @@ pub struct SemanticArgs {
 }
 
 pub async fn run(args: &SemanticArgs, global: &GlobalOpts) -> anyhow::Result<()> {
-    let text = read_input(&args.input)?;
+    let text = read_input(&args.input, global.max_input_size)?;
     let text_str = String::from_utf8_lossy(&text);
 
     global.detail(&format!(
@@ -94,17 +94,18 @@ pub async fn run(args: &SemanticArgs, global: &GlobalOpts) -> anyhow::Result<()>
         poly_order: args.poly_order,
         threshold: args.threshold,
         min_distance: args.min_distance,
+        ..SemanticConfig::default()
     };
 
     match args.provider {
         ProviderType::Ollama => {
-            let provider = OllamaProvider::new(args.base_url.clone(), args.model.clone());
+            let provider = OllamaProvider::new(args.base_url.clone(), args.model.clone())?;
             run_pipeline(&text_str, &provider, &config, args, global).await
         }
         ProviderType::Openai => {
             let api_key = resolve_openai_key(&args.api_key)?;
             let provider =
-                OpenAiProvider::new(api_key, args.base_url.clone(), args.model.clone());
+                OpenAiProvider::new(api_key, args.base_url.clone(), args.model.clone())?;
             run_pipeline(&text_str, &provider, &config, args, global).await
         }
         ProviderType::Onnx => {
@@ -203,10 +204,15 @@ fn emit_distances_to_stderr(raw: &[f64], smoothed: &[f64]) {
     eprintln!("--- end ---");
 }
 
-fn read_input(input: &str) -> anyhow::Result<Vec<u8>> {
+fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
     if input == "-" {
         let mut buf = Vec::new();
-        io::stdin().read_to_end(&mut buf)?;
+        io::stdin().take(max_size as u64 + 1).read_to_end(&mut buf)?;
+        anyhow::ensure!(
+            buf.len() <= max_size,
+            "Stdin input exceeds maximum allowed size ({max_size} bytes). \
+             Use --max-input-size to increase the limit."
+        );
         Ok(buf)
     } else {
         let path = PathBuf::from(input);
@@ -214,6 +220,13 @@ fn read_input(input: &str) -> anyhow::Result<Vec<u8>> {
             path.exists(),
             "File not found: {}\nCheck the path and try again.",
             path.display()
+        );
+        let meta = std::fs::metadata(&path)?;
+        anyhow::ensure!(
+            meta.len() <= max_size as u64,
+            "File size ({} bytes) exceeds maximum allowed size ({max_size} bytes). \
+             Use --max-input-size to increase the limit.",
+            meta.len()
         );
         Ok(std::fs::read(&path)?)
     }

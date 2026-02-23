@@ -15,10 +15,9 @@ pub struct PyOllamaProvider {
 impl PyOllamaProvider {
     #[new]
     #[pyo3(signature = (*, model=None, base_url=None))]
-    fn new(model: Option<String>, base_url: Option<String>) -> Self {
-        Self {
-            inner: OllamaProvider::new(base_url, model),
-        }
+    fn new(model: Option<String>, base_url: Option<String>) -> PyResult<Self> {
+        let inner = OllamaProvider::new(base_url, model).map_err(to_py_err)?;
+        Ok(Self { inner })
     }
 }
 
@@ -31,10 +30,9 @@ pub struct PyOpenAiProvider {
 impl PyOpenAiProvider {
     #[new]
     #[pyo3(signature = (api_key, *, model=None, base_url=None))]
-    fn new(api_key: String, model: Option<String>, base_url: Option<String>) -> Self {
-        Self {
-            inner: OpenAiProvider::new(api_key, base_url, model),
-        }
+    fn new(api_key: String, model: Option<String>, base_url: Option<String>) -> PyResult<Self> {
+        let inner = OpenAiProvider::new(api_key, base_url, model).map_err(to_py_err)?;
+        Ok(Self { inner })
     }
 }
 

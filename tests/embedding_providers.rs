@@ -15,7 +15,7 @@ async fn test_ollama_nomic_embed() {
     use common::ollama::OllamaProvider;
     use common::EmbeddingProvider;
 
-    let provider = OllamaProvider::new(None, Some("nomic-embed-text".to_string()));
+    let provider = OllamaProvider::new(None, Some("nomic-embed-text".to_string())).expect("Failed to build Ollama client");
     let texts = &["Hello world", "How are you?", "Rust is great"];
 
     let embeddings = provider.embed(texts).await.expect("Ollama embed failed");
@@ -34,7 +34,7 @@ async fn test_ollama_qwen3_embedding() {
     use common::ollama::OllamaProvider;
     use common::EmbeddingProvider;
 
-    let provider = OllamaProvider::new(None, Some("qwen3-embedding".to_string()));
+    let provider = OllamaProvider::new(None, Some("qwen3-embedding".to_string())).expect("Failed to build Ollama client");
     let texts = &["Hello world", "How are you?"];
 
     let embeddings = provider.embed(texts).await.expect("Ollama embed failed");
@@ -62,7 +62,7 @@ async fn test_openai_embedding() {
         .unwrap()
         .to_string();
 
-    let provider = OpenAiProvider::new(api_key, None, None);
+    let provider = OpenAiProvider::new(api_key, None, None).expect("Failed to build OpenAI client");
     let texts = &["Hello world", "How are you?"];
 
     let embeddings = provider.embed(texts).await.expect("OpenAI embed failed");

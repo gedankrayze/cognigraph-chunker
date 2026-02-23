@@ -2,6 +2,9 @@
 
 use clap::Args;
 
+/// Default maximum input size: 50 MiB.
+const DEFAULT_MAX_INPUT_SIZE: usize = 50 * 1024 * 1024;
+
 /// Global output control flags.
 #[derive(Args, Clone)]
 pub struct GlobalOpts {
@@ -16,6 +19,10 @@ pub struct GlobalOpts {
     /// Print chunk statistics after output (count, avg/min/max size)
     #[arg(long, global = true)]
     pub stats: bool,
+
+    /// Maximum input size in bytes (default: 50 MiB)
+    #[arg(long, global = true, default_value_t = DEFAULT_MAX_INPUT_SIZE)]
+    pub max_input_size: usize,
 }
 
 impl GlobalOpts {

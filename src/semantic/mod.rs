@@ -32,6 +32,8 @@ pub struct SemanticConfig {
     pub threshold: f64,
     /// Minimum block gap between split points.
     pub min_distance: usize,
+    /// Maximum number of blocks before bailing (O(n²) protection).
+    pub max_blocks: usize,
 }
 
 impl Default for SemanticConfig {
@@ -42,6 +44,7 @@ impl Default for SemanticConfig {
             poly_order: 3,
             threshold: 0.5,
             min_distance: 2,
+            max_blocks: 10_000,
         }
     }
 }
@@ -148,6 +151,15 @@ async fn run_pipeline<P: EmbeddingProvider>(
 
     if blocks.is_empty() {
         return Ok(empty_result());
+    }
+
+    if blocks.len() > config.max_blocks {
+        bail!(
+            "Input exceeds maximum block count ({} blocks, limit {}). \
+             Reduce input size or increase max_blocks.",
+            blocks.len(),
+            config.max_blocks
+        );
     }
 
     if blocks.len() == 1 {

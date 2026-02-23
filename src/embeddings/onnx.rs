@@ -76,6 +76,15 @@ fn extract_embeddings(
         // [batch_size, seq_len, hidden_dim] — mean pool using attention mask
         let seq_len = dims[1];
         let hidden_dim = dims[2];
+        let expected = batch_size * seq_len * hidden_dim;
+        if data.len() < expected {
+            bail!(
+                "ONNX output tensor too small: expected at least {} elements for shape {:?}, got {}",
+                expected,
+                dims,
+                data.len()
+            );
+        }
         let mut result = Vec::with_capacity(batch_size);
 
         for (i, encoding) in encodings.iter().enumerate().take(batch_size) {
@@ -103,6 +112,15 @@ fn extract_embeddings(
     } else if dims.len() == 2 {
         // [batch_size, hidden_dim] — already pooled
         let hidden_dim = dims[1];
+        let expected = batch_size * hidden_dim;
+        if data.len() < expected {
+            bail!(
+                "ONNX output tensor too small: expected at least {} elements for shape {:?}, got {}",
+                expected,
+                dims,
+                data.len()
+            );
+        }
         let mut result = Vec::with_capacity(batch_size);
         for i in 0..batch_size {
             let base = i * hidden_dim;
