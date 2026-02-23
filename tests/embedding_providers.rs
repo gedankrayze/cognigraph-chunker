@@ -74,3 +74,25 @@ async fn test_openai_embedding() {
     }
     println!("OpenAI text-embedding-3-small: OK (dim={})", embeddings[0].len());
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_onnx_minilm() {
+    use common::onnx::OnnxProvider;
+    use common::EmbeddingProvider;
+
+    let provider = OnnxProvider::new("models/all-MiniLM-L6-v2")
+        .expect("Failed to load ONNX model from models/all-MiniLM-L6-v2");
+
+    let texts = &["Hello world", "How are you?", "Rust is great"];
+
+    let embeddings = provider.embed(texts).await.expect("ONNX embed failed");
+
+    assert_eq!(embeddings.len(), 3);
+    for (i, emb) in embeddings.iter().enumerate() {
+        println!("  text[{}]: dim={}", i, emb.len());
+        assert!(!emb.is_empty(), "Embedding should not be empty");
+        assert_eq!(emb.len(), 384, "all-MiniLM-L6-v2 should produce 384-dim embeddings");
+    }
+    println!("ONNX all-MiniLM-L6-v2: OK (dim={})", embeddings[0].len());
+}

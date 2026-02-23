@@ -146,10 +146,15 @@ impl EmbeddingProvider for OnnxProvider {
             attention_mask.extend(std::iter::repeat_n(0i64, max_len - mask.len()));
         }
 
+        // token_type_ids: all zeros for single-segment inputs (required by BERT-based models)
+        let token_type_ids: Vec<i64> = vec![0i64; batch_size * max_len];
+
         let input_ids_value = Value::from_array(([batch_size, max_len], input_ids))
             .context("Failed to create input_ids ORT value")?;
         let attention_mask_value = Value::from_array(([batch_size, max_len], attention_mask))
             .context("Failed to create attention_mask ORT value")?;
+        let token_type_ids_value = Value::from_array(([batch_size, max_len], token_type_ids))
+            .context("Failed to create token_type_ids ORT value")?;
 
         // Run inference and extract embeddings while session lock is held
         let mut session = self
@@ -158,7 +163,7 @@ impl EmbeddingProvider for OnnxProvider {
             .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
 
         let outputs = session
-            .run(ort::inputs![input_ids_value, attention_mask_value])
+            .run(ort::inputs![input_ids_value, attention_mask_value, token_type_ids_value])
             .context("ONNX inference failed")?;
 
         let embeddings = extract_embeddings(&outputs[0], &encodings, batch_size)?;
