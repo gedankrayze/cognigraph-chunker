@@ -1,4 +1,6 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use std::hint::black_box;
+
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use cognigraph_chunker::core::chunk::chunk;
 use cognigraph_chunker::core::merge::{find_merge_indices, merge_splits};
