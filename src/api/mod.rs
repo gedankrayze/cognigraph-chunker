@@ -77,7 +77,10 @@ pub fn router(state: AppState) -> Router {
             auth_middleware,
         ))
         .layer(RequestBodyLimitLayer::new(API_BODY_LIMIT))
-        .layer(TimeoutLayer::with_status_code(StatusCode::GATEWAY_TIMEOUT, Duration::from_secs(120)))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::GATEWAY_TIMEOUT,
+            Duration::from_secs(120),
+        ))
         .layer(cors)
         .with_state(shared_state)
 }

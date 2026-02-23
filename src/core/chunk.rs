@@ -134,7 +134,10 @@ impl<'a> Iterator for Chunker<'a> {
             return Some(chunk);
         }
 
-        let end = self.pos.saturating_add(self.target_size).min(self.text.len());
+        let end = self
+            .pos
+            .saturating_add(self.target_size)
+            .min(self.text.len());
 
         let split_at = compute_split_at(
             self.text,
@@ -257,7 +260,10 @@ impl OwnedChunker {
             return Some(chunk);
         }
 
-        let end = self.pos.saturating_add(self.target_size).min(self.text.len());
+        let end = self
+            .pos
+            .saturating_add(self.target_size)
+            .min(self.text.len());
 
         let split_at = compute_split_at(
             &self.text,

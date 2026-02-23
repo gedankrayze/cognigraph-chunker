@@ -104,8 +104,7 @@ pub async fn run(args: &SemanticArgs, global: &GlobalOpts) -> anyhow::Result<()>
         }
         ProviderType::Openai => {
             let api_key = resolve_openai_key(&args.api_key)?;
-            let provider =
-                OpenAiProvider::new(api_key, args.base_url.clone(), args.model.clone())?;
+            let provider = OpenAiProvider::new(api_key, args.base_url.clone(), args.model.clone())?;
             run_pipeline(&text_str, &provider, &config, args, global).await
         }
         ProviderType::Onnx => {
@@ -141,7 +140,13 @@ async fn run_pipeline<P: EmbeddingProvider>(
     let chunks = maybe_merge(result.chunks, &args.merge_opts, global);
 
     // Print semantic stats (before write, so it appears above output in piped scenarios)
-    print_semantic_info(&result.block_stats, &result.split_indices, chunks.len(), args.no_markdown, global);
+    print_semantic_info(
+        &result.block_stats,
+        &result.split_indices,
+        chunks.len(),
+        args.no_markdown,
+        global,
+    );
 
     write_chunks(&chunks, args.format);
     global_opts::print_stats(&chunks, global);
@@ -207,7 +212,9 @@ fn emit_distances_to_stderr(raw: &[f64], smoothed: &[f64]) {
 fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
     if input == "-" {
         let mut buf = Vec::new();
-        io::stdin().take(max_size as u64 + 1).read_to_end(&mut buf)?;
+        io::stdin()
+            .take(max_size as u64 + 1)
+            .read_to_end(&mut buf)?;
         anyhow::ensure!(
             buf.len() <= max_size,
             "Stdin input exceeds maximum allowed size ({max_size} bytes). \

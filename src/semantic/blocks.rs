@@ -40,9 +40,8 @@ pub struct Block<'a> {
 /// Paragraphs are sentence-split using Unicode sentence boundaries.
 /// Headings are emitted as individual blocks.
 pub fn split_blocks(text: &str) -> Vec<Block<'_>> {
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS;
+    let options =
+        Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
 
     let iter = Parser::new_ext(text, options).into_offset_iter();
 
@@ -119,10 +118,14 @@ mod tests {
 
     #[test]
     fn test_table_kept_atomic() {
-        let md = "Some intro text.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nAfter the table.\n";
+        let md =
+            "Some intro text.\n\n| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n\nAfter the table.\n";
         let blocks = split_blocks(md);
 
-        let table_blocks: Vec<_> = blocks.iter().filter(|b| b.kind == BlockKind::Table).collect();
+        let table_blocks: Vec<_> = blocks
+            .iter()
+            .filter(|b| b.kind == BlockKind::Table)
+            .collect();
         assert_eq!(table_blocks.len(), 1, "Table should be one atomic block");
         assert!(
             table_blocks[0].text.contains("| A | B |"),
@@ -143,7 +146,11 @@ mod tests {
             .iter()
             .filter(|b| b.kind == BlockKind::CodeBlock)
             .collect();
-        assert_eq!(code_blocks.len(), 1, "Code block should be one atomic block");
+        assert_eq!(
+            code_blocks.len(),
+            1,
+            "Code block should be one atomic block"
+        );
         assert!(code_blocks[0].text.contains("fn main()"));
     }
 
@@ -198,14 +205,17 @@ Closing paragraph.
         let kinds: Vec<BlockKind> = blocks.iter().map(|b| b.kind).collect();
         assert!(kinds.contains(&BlockKind::Heading), "Should have heading");
         assert!(kinds.contains(&BlockKind::Table), "Should have table");
-        assert!(kinds.contains(&BlockKind::CodeBlock), "Should have code block");
-        assert!(kinds.contains(&BlockKind::Sentence), "Should have sentences");
+        assert!(
+            kinds.contains(&BlockKind::CodeBlock),
+            "Should have code block"
+        );
+        assert!(
+            kinds.contains(&BlockKind::Sentence),
+            "Should have sentences"
+        );
 
         // Table and code block should each appear exactly once
-        assert_eq!(
-            kinds.iter().filter(|k| **k == BlockKind::Table).count(),
-            1
-        );
+        assert_eq!(kinds.iter().filter(|k| **k == BlockKind::Table).count(), 1);
         assert_eq!(
             kinds.iter().filter(|k| **k == BlockKind::CodeBlock).count(),
             1

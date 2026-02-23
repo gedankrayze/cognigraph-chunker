@@ -12,10 +12,11 @@ mod common {
 #[tokio::test]
 #[ignore]
 async fn test_ollama_nomic_embed() {
-    use common::ollama::OllamaProvider;
     use common::EmbeddingProvider;
+    use common::ollama::OllamaProvider;
 
-    let provider = OllamaProvider::new(None, Some("nomic-embed-text".to_string())).expect("Failed to build Ollama client");
+    let provider = OllamaProvider::new(None, Some("nomic-embed-text".to_string()))
+        .expect("Failed to build Ollama client");
     let texts = &["Hello world", "How are you?", "Rust is great"];
 
     let embeddings = provider.embed(texts).await.expect("Ollama embed failed");
@@ -31,10 +32,11 @@ async fn test_ollama_nomic_embed() {
 #[tokio::test]
 #[ignore]
 async fn test_ollama_qwen3_embedding() {
-    use common::ollama::OllamaProvider;
     use common::EmbeddingProvider;
+    use common::ollama::OllamaProvider;
 
-    let provider = OllamaProvider::new(None, Some("qwen3-embedding".to_string())).expect("Failed to build Ollama client");
+    let provider = OllamaProvider::new(None, Some("qwen3-embedding".to_string()))
+        .expect("Failed to build Ollama client");
     let texts = &["Hello world", "How are you?"];
 
     let embeddings = provider.embed(texts).await.expect("Ollama embed failed");
@@ -50,8 +52,8 @@ async fn test_ollama_qwen3_embedding() {
 #[tokio::test]
 #[ignore]
 async fn test_openai_embedding() {
-    use common::openai::OpenAiProvider;
     use common::EmbeddingProvider;
+    use common::openai::OpenAiProvider;
 
     let api_key = std::fs::read_to_string(".env.openai")
         .expect("Missing .env.openai file")
@@ -72,14 +74,17 @@ async fn test_openai_embedding() {
         println!("  text[{}]: dim={}", i, emb.len());
         assert!(!emb.is_empty(), "Embedding should not be empty");
     }
-    println!("OpenAI text-embedding-3-small: OK (dim={})", embeddings[0].len());
+    println!(
+        "OpenAI text-embedding-3-small: OK (dim={})",
+        embeddings[0].len()
+    );
 }
 
 #[tokio::test]
 #[ignore]
 async fn test_onnx_minilm() {
-    use common::onnx::OnnxProvider;
     use common::EmbeddingProvider;
+    use common::onnx::OnnxProvider;
 
     let provider = OnnxProvider::new("models/all-MiniLM-L6-v2")
         .expect("Failed to load ONNX model from models/all-MiniLM-L6-v2");
@@ -92,7 +97,11 @@ async fn test_onnx_minilm() {
     for (i, emb) in embeddings.iter().enumerate() {
         println!("  text[{}]: dim={}", i, emb.len());
         assert!(!emb.is_empty(), "Embedding should not be empty");
-        assert_eq!(emb.len(), 384, "all-MiniLM-L6-v2 should produce 384-dim embeddings");
+        assert_eq!(
+            emb.len(),
+            384,
+            "all-MiniLM-L6-v2 should produce 384-dim embeddings"
+        );
     }
     println!("ONNX all-MiniLM-L6-v2: OK (dim={})", embeddings[0].len());
 }

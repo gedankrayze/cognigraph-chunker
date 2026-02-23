@@ -1,6 +1,8 @@
 use pyo3::prelude::*;
 
-use cognigraph_chunker::core::{IncludeDelim, PatternSplitter, split_at_delimiters, split_at_patterns};
+use cognigraph_chunker::core::{
+    IncludeDelim, PatternSplitter, split_at_delimiters, split_at_patterns,
+};
 
 fn parse_include_delim(s: &str) -> PyResult<IncludeDelim> {
     match s {
@@ -22,7 +24,12 @@ pub fn py_split_at_delimiters(
     min_chars: usize,
 ) -> PyResult<Vec<(usize, usize)>> {
     let mode = parse_include_delim(include_delim)?;
-    Ok(split_at_delimiters(text.as_bytes(), delimiters, mode, min_chars))
+    Ok(split_at_delimiters(
+        text.as_bytes(),
+        delimiters,
+        mode,
+        min_chars,
+    ))
 }
 
 #[pyfunction]
@@ -35,7 +42,12 @@ pub fn py_split_at_patterns(
 ) -> PyResult<Vec<(usize, usize)>> {
     let mode = parse_include_delim(include_delim)?;
     let pattern_refs: Vec<&[u8]> = patterns.iter().map(|p| p.as_slice()).collect();
-    Ok(split_at_patterns(text.as_bytes(), &pattern_refs, mode, min_chars))
+    Ok(split_at_patterns(
+        text.as_bytes(),
+        &pattern_refs,
+        mode,
+        min_chars,
+    ))
 }
 
 #[pyclass(name = "PatternSplitter")]

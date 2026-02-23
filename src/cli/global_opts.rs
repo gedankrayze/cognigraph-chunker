@@ -54,7 +54,10 @@ pub fn print_stats(chunks: &[(String, usize)], opts: &GlobalOpts) {
     }
 
     let sizes_bytes: Vec<usize> = chunks.iter().map(|(t, _)| t.len()).collect();
-    let sizes_tokens: Vec<usize> = chunks.iter().map(|(t, _)| t.split_whitespace().count()).collect();
+    let sizes_tokens: Vec<usize> = chunks
+        .iter()
+        .map(|(t, _)| t.split_whitespace().count())
+        .collect();
 
     let total_bytes: usize = sizes_bytes.iter().sum();
     let total_tokens: usize = sizes_tokens.iter().sum();
@@ -65,7 +68,16 @@ pub fn print_stats(chunks: &[(String, usize)], opts: &GlobalOpts) {
     let max_tokens = sizes_tokens.iter().max().unwrap();
     let avg_tokens = total_tokens / count;
 
-    eprintln!("[stats] {} chunks | {} bytes total | {} tokens total", count, total_bytes, total_tokens);
-    eprintln!("[stats] bytes  — avg: {}, min: {}, max: {}", avg_bytes, min_bytes, max_bytes);
-    eprintln!("[stats] tokens — avg: {}, min: {}, max: {}", avg_tokens, min_tokens, max_tokens);
+    eprintln!(
+        "[stats] {} chunks | {} bytes total | {} tokens total",
+        count, total_bytes, total_tokens
+    );
+    eprintln!(
+        "[stats] bytes  — avg: {}, min: {}, max: {}",
+        avg_bytes, min_bytes, max_bytes
+    );
+    eprintln!(
+        "[stats] tokens — avg: {}, min: {}, max: {}",
+        avg_tokens, min_tokens, max_tokens
+    );
 }

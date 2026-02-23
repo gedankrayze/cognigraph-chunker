@@ -19,9 +19,7 @@ pub struct MergeRequest {
     pub chunk_size: usize,
 }
 
-pub async fn merge_handler(
-    Json(req): Json<MergeRequest>,
-) -> Result<Json<MergeResponse>, ApiError> {
+pub async fn merge_handler(Json(req): Json<MergeRequest>) -> Result<Json<MergeResponse>, ApiError> {
     if req.chunks.is_empty() {
         return Ok(Json(MergeResponse {
             chunks: vec![],

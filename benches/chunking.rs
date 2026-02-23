@@ -161,8 +161,7 @@ fn bench_splitting(c: &mut Criterion) {
     // Single delimiter
     group.bench_function("split_at_delimiters/1_delim", |b| {
         b.iter(|| {
-            let offsets =
-                split_at_delimiters(black_box(&text), b".", IncludeDelim::Prev, 0);
+            let offsets = split_at_delimiters(black_box(&text), b".", IncludeDelim::Prev, 0);
             black_box(offsets);
         });
     });
@@ -170,8 +169,7 @@ fn bench_splitting(c: &mut Criterion) {
     // Three delimiters
     group.bench_function("split_at_delimiters/3_delims", |b| {
         b.iter(|| {
-            let offsets =
-                split_at_delimiters(black_box(&text), b".!?", IncludeDelim::Prev, 0);
+            let offsets = split_at_delimiters(black_box(&text), b".!?", IncludeDelim::Prev, 0);
             black_box(offsets);
         });
     });
@@ -179,8 +177,7 @@ fn bench_splitting(c: &mut Criterion) {
     // Five+ delimiters (triggers lookup table path)
     group.bench_function("split_at_delimiters/5_delims", |b| {
         b.iter(|| {
-            let offsets =
-                split_at_delimiters(black_box(&text), b".!?\n;", IncludeDelim::Prev, 0);
+            let offsets = split_at_delimiters(black_box(&text), b".!?\n;", IncludeDelim::Prev, 0);
             black_box(offsets);
         });
     });
@@ -193,8 +190,7 @@ fn bench_splitting(c: &mut Criterion) {
     ] {
         group.bench_function(format!("include_delim/{}", mode.0), |b| {
             b.iter(|| {
-                let offsets =
-                    split_at_delimiters(black_box(&text), b".", mode.1, 0);
+                let offsets = split_at_delimiters(black_box(&text), b".", mode.1, 0);
                 black_box(offsets);
             });
         });
@@ -298,8 +294,7 @@ fn bench_signal_processing(c: &mut Criterion) {
 
         group.bench_function(format!("windowed_cross_similarity/n_{n}_d_{d}"), |b| {
             b.iter(|| {
-                let result =
-                    windowed_cross_similarity(black_box(&embeddings), n, d, 3);
+                let result = windowed_cross_similarity(black_box(&embeddings), n, d, 3);
                 black_box(result);
             });
         });
@@ -310,24 +305,19 @@ fn bench_signal_processing(c: &mut Criterion) {
     let d = 128;
     let embeddings = make_synthetic_embeddings(n, d);
     for window in [3, 5, 11] {
-        group.bench_function(
-            format!("windowed_cross_similarity/n_{n}_w_{window}"),
-            |b| {
-                b.iter(|| {
-                    let result =
-                        windowed_cross_similarity(black_box(&embeddings), n, d, window);
-                    black_box(result);
-                });
-            },
-        );
+        group.bench_function(format!("windowed_cross_similarity/n_{n}_w_{window}"), |b| {
+            b.iter(|| {
+                let result = windowed_cross_similarity(black_box(&embeddings), n, d, window);
+                black_box(result);
+            });
+        });
     }
 
     // find_local_minima_interpolated
     let data_200 = make_synthetic_similarities(200);
     group.bench_function("find_local_minima/n_200", |b| {
         b.iter(|| {
-            let result =
-                find_local_minima_interpolated(black_box(&data_200), 11, 3, 0.1);
+            let result = find_local_minima_interpolated(black_box(&data_200), 11, 3, 0.1);
             black_box(result);
         });
     });
@@ -335,8 +325,7 @@ fn bench_signal_processing(c: &mut Criterion) {
     let data_1000 = make_synthetic_similarities(1000);
     group.bench_function("find_local_minima/n_1000", |b| {
         b.iter(|| {
-            let result =
-                find_local_minima_interpolated(black_box(&data_1000), 11, 3, 0.1);
+            let result = find_local_minima_interpolated(black_box(&data_1000), 11, 3, 0.1);
             black_box(result);
         });
     });
@@ -349,8 +338,7 @@ fn bench_signal_processing(c: &mut Criterion) {
 
     group.bench_function("filter_split_indices/n_100", |b| {
         b.iter(|| {
-            let result =
-                filter_split_indices(black_box(&indices), black_box(&values), 0.5, 3);
+            let result = filter_split_indices(black_box(&indices), black_box(&values), 0.5, 3);
             black_box(result);
         });
     });

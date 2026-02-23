@@ -1,7 +1,9 @@
 use numpy::PyArray1;
 use pyo3::prelude::*;
 
-use cognigraph_chunker::core::{find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits};
+use cognigraph_chunker::core::{
+    find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits,
+};
 
 #[pyclass(name = "MergeResult")]
 #[derive(Clone)]

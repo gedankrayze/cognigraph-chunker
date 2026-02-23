@@ -16,7 +16,11 @@ pub struct OpenAiProvider {
 }
 
 impl OpenAiProvider {
-    pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> anyhow::Result<Self> {
+    pub fn new(
+        api_key: String,
+        base_url: Option<String>,
+        model: Option<String>,
+    ) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
             .timeout(std::time::Duration::from_secs(120))

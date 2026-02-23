@@ -99,7 +99,9 @@ pub fn run(args: &ChunkArgs, global: &GlobalOpts) -> anyhow::Result<()> {
 fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
     if input == "-" {
         let mut buf = Vec::new();
-        io::stdin().take(max_size as u64 + 1).read_to_end(&mut buf)?;
+        io::stdin()
+            .take(max_size as u64 + 1)
+            .read_to_end(&mut buf)?;
         anyhow::ensure!(
             buf.len() <= max_size,
             "Stdin input exceeds maximum allowed size ({max_size} bytes). \

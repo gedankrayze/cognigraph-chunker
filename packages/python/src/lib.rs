@@ -10,7 +10,10 @@ use pyo3::prelude::*;
 #[pymodule]
 fn cognigraph_chunker(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Error
-    m.add("CognigraphError", m.py().get_type::<error::CognigraphError>())?;
+    m.add(
+        "CognigraphError",
+        m.py().get_type::<error::CognigraphError>(),
+    )?;
 
     // Chunker
     m.add_class::<chunker::PyChunker>()?;

@@ -70,7 +70,10 @@ pub fn run(args: &SplitArgs, global: &GlobalOpts) -> anyhow::Result<()> {
     let offsets = if let Some(ref patterns_str) = args.patterns {
         let pattern_strings: Vec<String> = parse_patterns(patterns_str);
         let pattern_refs: Vec<&[u8]> = pattern_strings.iter().map(|s| s.as_bytes()).collect();
-        global.detail(&format!("[split] using {} multi-byte patterns", pattern_refs.len()));
+        global.detail(&format!(
+            "[split] using {} multi-byte patterns",
+            pattern_refs.len()
+        ));
         split_at_patterns(&text, &pattern_refs, include_delim, args.min_chars)
     } else {
         let delim_bytes = if let Some(ref d) = args.delimiters {
@@ -78,7 +81,10 @@ pub fn run(args: &SplitArgs, global: &GlobalOpts) -> anyhow::Result<()> {
         } else {
             b"\n.?".to_vec()
         };
-        global.detail(&format!("[split] using {} single-byte delimiters", delim_bytes.len()));
+        global.detail(&format!(
+            "[split] using {} single-byte delimiters",
+            delim_bytes.len()
+        ));
         split_at_delimiters(&text, &delim_bytes, include_delim, args.min_chars)
     };
 
@@ -99,7 +105,9 @@ pub fn run(args: &SplitArgs, global: &GlobalOpts) -> anyhow::Result<()> {
 fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
     if input == "-" {
         let mut buf = Vec::new();
-        io::stdin().take(max_size as u64 + 1).read_to_end(&mut buf)?;
+        io::stdin()
+            .take(max_size as u64 + 1)
+            .read_to_end(&mut buf)?;
         anyhow::ensure!(
             buf.len() <= max_size,
             "Stdin input exceeds maximum allowed size ({max_size} bytes). \

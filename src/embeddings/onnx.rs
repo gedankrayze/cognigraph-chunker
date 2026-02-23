@@ -124,9 +124,7 @@ fn extract_embeddings(
         let mut result = Vec::with_capacity(batch_size);
         for i in 0..batch_size {
             let base = i * hidden_dim;
-            let embedding: Vec<f64> = (0..hidden_dim)
-                .map(|k| data[base + k] as f64)
-                .collect();
+            let embedding: Vec<f64> = (0..hidden_dim).map(|k| data[base + k] as f64).collect();
             result.push(embedding);
         }
         Ok(result)
@@ -147,7 +145,11 @@ impl EmbeddingProvider for OnnxProvider {
             .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
 
         let batch_size = encodings.len();
-        let max_len = encodings.iter().map(|e| e.get_ids().len()).max().unwrap_or(0);
+        let max_len = encodings
+            .iter()
+            .map(|e| e.get_ids().len())
+            .max()
+            .unwrap_or(0);
 
         // Build padded input_ids and attention_mask
         let mut input_ids: Vec<i64> = Vec::with_capacity(batch_size * max_len);
@@ -181,7 +183,11 @@ impl EmbeddingProvider for OnnxProvider {
             .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
 
         let outputs = session
-            .run(ort::inputs![input_ids_value, attention_mask_value, token_type_ids_value])
+            .run(ort::inputs![
+                input_ids_value,
+                attention_mask_value,
+                token_type_ids_value
+            ])
             .context("ONNX inference failed")?;
 
         let embeddings = extract_embeddings(&outputs[0], &encodings, batch_size)?;

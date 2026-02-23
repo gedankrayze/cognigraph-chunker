@@ -6,7 +6,9 @@ use serde::Deserialize;
 use crate::core::chunk::chunk;
 
 use super::errors::ApiError;
-use super::types::{ChunksResponse, MergeParams, chunks_response, maybe_merge_api, parse_delimiters};
+use super::types::{
+    ChunksResponse, MergeParams, chunks_response, maybe_merge_api, parse_delimiters,
+};
 
 fn default_size() -> usize {
     4096

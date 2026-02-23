@@ -77,11 +77,7 @@ pub struct MergeResult {
 }
 
 /// Merge text segments based on token counts, respecting chunk size limits.
-pub fn merge_splits(
-    splits: &[&str],
-    token_counts: &[usize],
-    chunk_size: usize,
-) -> MergeResult {
+pub fn merge_splits(splits: &[&str], token_counts: &[usize], chunk_size: usize) -> MergeResult {
     if splits.is_empty() || token_counts.is_empty() {
         return MergeResult {
             merged: vec![],

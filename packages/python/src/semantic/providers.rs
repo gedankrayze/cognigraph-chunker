@@ -1,8 +1,8 @@
 use pyo3::prelude::*;
 
 use cognigraph_chunker::embeddings::ollama::OllamaProvider;
-use cognigraph_chunker::embeddings::openai::OpenAiProvider;
 use cognigraph_chunker::embeddings::onnx::OnnxProvider as RustOnnxProvider;
+use cognigraph_chunker::embeddings::openai::OpenAiProvider;
 
 use crate::error::to_py_err;
 

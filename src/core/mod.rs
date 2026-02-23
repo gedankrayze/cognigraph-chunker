@@ -16,4 +16,6 @@ pub use savgol::{
     FilteredIndices, MinimaResult, filter_split_indices, find_local_minima_interpolated,
     savgol_filter, windowed_cross_similarity,
 };
-pub use split::{IncludeDelim, PatternSplitter, Splitter, split, split_at_delimiters, split_at_patterns};
+pub use split::{
+    IncludeDelim, PatternSplitter, Splitter, split, split_at_delimiters, split_at_patterns,
+};

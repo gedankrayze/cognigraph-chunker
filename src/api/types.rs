@@ -100,10 +100,7 @@ pub fn parse_patterns(s: &str) -> Vec<String> {
 }
 
 /// Apply merge post-processing if enabled.
-pub fn maybe_merge_api(
-    chunks: Vec<(String, usize)>,
-    params: &MergeParams,
-) -> Vec<(String, usize)> {
+pub fn maybe_merge_api(chunks: Vec<(String, usize)>, params: &MergeParams) -> Vec<(String, usize)> {
     if !params.merge || chunks.len() <= 1 {
         return chunks;
     }

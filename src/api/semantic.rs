@@ -104,8 +104,7 @@ fn validate_base_url(raw: &str, allow_private: bool) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let parsed = url::Url::parse(raw)
-        .map_err(|e| anyhow::anyhow!("Invalid base_url: {e}"))?;
+    let parsed = url::Url::parse(raw).map_err(|e| anyhow::anyhow!("Invalid base_url: {e}"))?;
 
     let scheme = parsed.scheme();
     anyhow::ensure!(
@@ -117,13 +116,17 @@ fn validate_base_url(raw: &str, allow_private: bool) -> anyhow::Result<()> {
 
     // Reject "localhost"
     if host.eq_ignore_ascii_case("localhost") {
-        anyhow::bail!("Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)");
+        anyhow::bail!(
+            "Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)"
+        );
     }
 
     // If it's a literal IP, check directly
     if let Ok(ip) = host.parse::<IpAddr>() {
         if is_private_ip(ip) {
-            anyhow::bail!("Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)");
+            anyhow::bail!(
+                "Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)"
+            );
         }
         return Ok(());
     }
@@ -179,14 +182,14 @@ pub async fn semantic_handler(
         }
         ProviderParam::Openai => {
             let api_key = resolve_openai_key(&req.api_key)?;
-            let provider =
-                OpenAiProvider::new(api_key, req.base_url.clone(), req.model.clone())?;
+            let provider = OpenAiProvider::new(api_key, req.base_url.clone(), req.model.clone())?;
             run_semantic(&req.text, &provider, &config, req.no_markdown).await?
         }
         ProviderParam::Onnx => {
-            let model_path = req.model_path.as_deref().ok_or_else(|| {
-                anyhow::anyhow!("model_path is required for onnx provider")
-            })?;
+            let model_path = req
+                .model_path
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("model_path is required for onnx provider"))?;
             let provider = OnnxProvider::new(model_path)?;
             run_semantic(&req.text, &provider, &config, req.no_markdown).await?
         }
@@ -234,5 +237,7 @@ fn resolve_openai_key(flag: &Option<String>) -> anyhow::Result<String> {
         }
     }
 
-    anyhow::bail!("OpenAI API key not found. Provide it via the api_key field, OPENAI_API_KEY env var, or .env.openai file.")
+    anyhow::bail!(
+        "OpenAI API key not found. Provide it via the api_key field, OPENAI_API_KEY env var, or .env.openai file."
+    )
 }

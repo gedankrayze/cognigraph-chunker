@@ -2,10 +2,8 @@ use numpy::{PyArray1, PyArrayMethods};
 use pyo3::prelude::*;
 
 use cognigraph_chunker::core::{
-    filter_split_indices as rust_filter,
-    find_local_minima_interpolated as rust_minima,
-    savgol_filter as rust_savgol,
-    windowed_cross_similarity as rust_cross_sim,
+    filter_split_indices as rust_filter, find_local_minima_interpolated as rust_minima,
+    savgol_filter as rust_savgol, windowed_cross_similarity as rust_cross_sim,
 };
 
 /// Extract a `Vec<f64>` from either a numpy array or a Python list.

@@ -6,16 +6,17 @@ use numpy::PyArray1;
 use pyo3::prelude::*;
 
 use cognigraph_chunker::embeddings::EmbeddingProvider;
-use cognigraph_chunker::semantic::{SemanticConfig as RustSemanticConfig, semantic_chunk, semantic_chunk_plain};
+use cognigraph_chunker::semantic::{
+    SemanticConfig as RustSemanticConfig, semantic_chunk, semantic_chunk_plain,
+};
 
 use crate::error::to_py_err;
 use crate::signal::PyFilteredIndices;
 use providers::{PyOllamaProvider, PyOnnxProvider, PyOpenAiProvider};
 
 /// Shared Tokio runtime for all Python → async Rust calls.
-static RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
-    tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime")
-});
+static RUNTIME: LazyLock<tokio::runtime::Runtime> =
+    LazyLock::new(|| tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"));
 
 #[pyclass(name = "SemanticConfig")]
 #[derive(Clone)]
@@ -109,9 +110,7 @@ pub fn py_semantic_chunk(
     config: Option<&PySemanticConfig>,
     markdown: bool,
 ) -> PyResult<PySemanticResult> {
-    let rust_config = config
-        .map(RustSemanticConfig::from)
-        .unwrap_or_default();
+    let rust_config = config.map(RustSemanticConfig::from).unwrap_or_default();
 
     let text_owned = text.to_string();
 
@@ -144,13 +143,15 @@ fn run_semantic<P: EmbeddingProvider>(
     config: &RustSemanticConfig,
     markdown: bool,
 ) -> PyResult<PySemanticResult> {
-    let result = RUNTIME.block_on(async {
-        if markdown {
-            semantic_chunk(text, provider, config).await
-        } else {
-            semantic_chunk_plain(text, provider, config).await
-        }
-    }).map_err(to_py_err)?;
+    let result = RUNTIME
+        .block_on(async {
+            if markdown {
+                semantic_chunk(text, provider, config).await
+            } else {
+                semantic_chunk_plain(text, provider, config).await
+            }
+        })
+        .map_err(to_py_err)?;
 
     Ok(PySemanticResult {
         chunks: result.chunks,

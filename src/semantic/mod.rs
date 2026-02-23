@@ -91,7 +91,12 @@ impl BlockStats {
     }
 
     pub fn total(&self) -> usize {
-        self.sentences + self.tables + self.code_blocks + self.headings + self.lists + self.block_quotes
+        self.sentences
+            + self.tables
+            + self.code_blocks
+            + self.headings
+            + self.lists
+            + self.block_quotes
     }
 }
 
@@ -261,7 +266,11 @@ async fn run_pipeline<P: EmbeddingProvider>(
 /// Clamp a window size to be odd and <= data_len, minimum 3.
 fn clamp_odd_window(window: usize, data_len: usize) -> usize {
     let w = window.min(data_len);
-    let w = if w.is_multiple_of(2) { w.saturating_sub(1) } else { w };
+    let w = if w.is_multiple_of(2) {
+        w.saturating_sub(1)
+    } else {
+        w
+    };
     w.max(3).min(data_len)
 }
 
@@ -311,9 +320,21 @@ mod tests {
     #[test]
     fn test_group_blocks_no_splits() {
         let blocks = vec![
-            Block { text: "Hello. ", offset: 0, kind: BlockKind::Sentence },
-            Block { text: "World. ", offset: 7, kind: BlockKind::Sentence },
-            Block { text: "Test.", offset: 14, kind: BlockKind::Sentence },
+            Block {
+                text: "Hello. ",
+                offset: 0,
+                kind: BlockKind::Sentence,
+            },
+            Block {
+                text: "World. ",
+                offset: 7,
+                kind: BlockKind::Sentence,
+            },
+            Block {
+                text: "Test.",
+                offset: 14,
+                kind: BlockKind::Sentence,
+            },
         ];
         let chunks = group_blocks_at_boundaries(&blocks, &[]);
         assert_eq!(chunks.len(), 1);
@@ -324,25 +345,60 @@ mod tests {
     #[test]
     fn test_group_blocks_with_table() {
         let blocks = vec![
-            Block { text: "Intro. ", offset: 0, kind: BlockKind::Sentence },
-            Block { text: "| A | B |\n|---|---|\n| 1 | 2 |", offset: 7, kind: BlockKind::Table },
-            Block { text: "After.", offset: 40, kind: BlockKind::Sentence },
+            Block {
+                text: "Intro. ",
+                offset: 0,
+                kind: BlockKind::Sentence,
+            },
+            Block {
+                text: "| A | B |\n|---|---|\n| 1 | 2 |",
+                offset: 7,
+                kind: BlockKind::Table,
+            },
+            Block {
+                text: "After.",
+                offset: 40,
+                kind: BlockKind::Sentence,
+            },
         ];
         // Split after the table
         let chunks = group_blocks_at_boundaries(&blocks, &[1]);
         assert_eq!(chunks.len(), 2);
-        assert!(chunks[0].0.contains("| A | B |"), "First chunk should contain table");
+        assert!(
+            chunks[0].0.contains("| A | B |"),
+            "First chunk should contain table"
+        );
         assert_eq!(chunks[1].0, "After.");
     }
 
     #[test]
     fn test_block_stats() {
         let blocks = vec![
-            Block { text: "heading", offset: 0, kind: BlockKind::Heading },
-            Block { text: "sent1", offset: 10, kind: BlockKind::Sentence },
-            Block { text: "sent2", offset: 20, kind: BlockKind::Sentence },
-            Block { text: "table", offset: 30, kind: BlockKind::Table },
-            Block { text: "code", offset: 40, kind: BlockKind::CodeBlock },
+            Block {
+                text: "heading",
+                offset: 0,
+                kind: BlockKind::Heading,
+            },
+            Block {
+                text: "sent1",
+                offset: 10,
+                kind: BlockKind::Sentence,
+            },
+            Block {
+                text: "sent2",
+                offset: 20,
+                kind: BlockKind::Sentence,
+            },
+            Block {
+                text: "table",
+                offset: 30,
+                kind: BlockKind::Table,
+            },
+            Block {
+                text: "code",
+                offset: 40,
+                kind: BlockKind::CodeBlock,
+            },
         ];
         let stats = BlockStats::from_blocks(&blocks);
         assert_eq!(stats.headings, 1);
