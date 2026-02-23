@@ -2,3 +2,7 @@
 .env
 .env.*
 .idea/
+.venv
+models/
+tests/python/.venv/
+__pycache__/

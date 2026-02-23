@@ -1,0 +1,14 @@
+[package]
+name = "cognigraph-python"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "cognigraph_chunker"
+crate-type = ["cdylib"]
+
+[dependencies]
+cognigraph-chunker = { path = "../.." }
+pyo3 = { version = "0.23", features = ["extension-module"] }
+tokio = { version = "1.49", features = ["rt-multi-thread"] }
+anyhow = "1.0"

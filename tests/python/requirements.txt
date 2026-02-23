@@ -1,0 +1,2 @@
+pytest>=8.0
+maturin>=1.7
