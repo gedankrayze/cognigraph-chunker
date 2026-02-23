@@ -111,24 +111,27 @@ Sample documents for testing are available at `/Users/skitsanos/FTP/Products/Cog
 
 ## Phase 8: REST API (after CLI is complete)
 
-- [ ] Add `serve` subcommand using `axum` + `tokio`
-- [ ] `POST /chunk` — fixed-size chunking
-- [ ] `POST /split` — delimiter splitting
-- [ ] `POST /semantic` — semantic chunking
-- [ ] `POST /merge` — token-aware merging
-- [ ] Request body: JSON with `text` + method-specific params
-- [ ] Response: JSON array of chunks with metadata (offsets, token counts)
-- [ ] Health endpoint: `GET /health`
-- [ ] Configurable bind address: `--host`, `--port`
-- [ ] Optional: API key auth via `--api-key` or env var
+- [x] Add `serve` subcommand using `axum` + `tokio`
+- [x] `POST /chunk` — fixed-size chunking
+- [x] `POST /split` — delimiter splitting
+- [x] `POST /semantic` — semantic chunking
+- [x] `POST /merge` — token-aware merging
+- [x] Request body: JSON with `text` + method-specific params
+- [x] Response: JSON array of chunks with metadata (offsets, token counts)
+- [x] Health endpoint: `GET /health`
+- [x] Configurable bind address: `--host`, `--port`
+- [x] Optional: API key auth via `--api-key` or env var
 
 ## Phase 9: Python Bindings
 
-- [ ] Add `packages/python/` with PyO3 setup
-- [ ] Expose `Chunker`, `Splitter`, `PatternSplitter` classes
-- [ ] Expose `semantic_chunk()` function (full pipeline)
-- [ ] Expose `merge_splits()`, `find_merge_indices()`
-- [ ] Expose signal processing: `savgol_filter()`, `windowed_cross_similarity()`, etc.
+- [x] Add `packages/python/` with PyO3 + maturin setup (Cargo workspace)
+- [x] Expose `Chunker` class (iterator, collect_chunks, collect_offsets, reset)
+- [x] Expose `split_at_delimiters()`, `split_at_patterns()`, `PatternSplitter` class
+- [x] Expose `semantic_chunk()` function with OllamaProvider, OpenAiProvider, OnnxProvider
+- [x] Expose `merge_splits()`, `find_merge_indices()`, `MergeResult`
+- [x] Expose signal processing: `savgol_filter()`, `windowed_cross_similarity()`, `find_local_minima()`, `filter_split_indices()`
+- [x] `SemanticConfig` and `SemanticResult` classes with full field access
+- [x] Python test suite: 27 tests (chunker, splitter, merge, signal, semantic)
 - [ ] NumPy integration for array inputs/outputs
 - [ ] Publish to PyPI as `cognigraph-chunker`
 
