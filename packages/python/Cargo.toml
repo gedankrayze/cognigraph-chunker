@@ -10,5 +10,6 @@ crate-type = ["cdylib"]
 [dependencies]
 cognigraph-chunker = { path = "../.." }
 pyo3 = { version = "0.23", features = ["extension-module"] }
+numpy = "0.23"
 tokio = { version = "1.49", features = ["rt-multi-thread"] }
 anyhow = "1.0"

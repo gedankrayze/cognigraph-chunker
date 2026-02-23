@@ -57,3 +57,10 @@ url = "2"
 
 # Error handling
 anyhow = "1.0"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "chunking"
+harness = false

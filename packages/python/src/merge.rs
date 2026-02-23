@@ -1,3 +1,4 @@
+use numpy::PyArray1;
 use pyo3::prelude::*;
 
 use cognigraph_chunker::core::{find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits};
@@ -9,6 +10,15 @@ pub struct PyMergeResult {
     pub merged: Vec<String>,
     #[pyo3(get)]
     pub token_counts: Vec<usize>,
+}
+
+#[pymethods]
+impl PyMergeResult {
+    /// Return `token_counts` as a numpy array.
+    #[getter]
+    fn token_counts_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<usize>> {
+        PyArray1::from_slice(py, &self.token_counts)
+    }
 }
 
 #[pyfunction]

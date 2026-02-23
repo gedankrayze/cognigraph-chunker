@@ -2,6 +2,7 @@ pub mod providers;
 
 use std::sync::LazyLock;
 
+use numpy::PyArray1;
 use pyo3::prelude::*;
 
 use cognigraph_chunker::embeddings::EmbeddingProvider;
@@ -79,6 +80,21 @@ pub struct PySemanticResult {
     pub smoothed: Vec<f64>,
     #[pyo3(get)]
     pub split_indices: PyFilteredIndices,
+}
+
+#[pymethods]
+impl PySemanticResult {
+    /// Return `similarities` as a numpy array.
+    #[getter]
+    fn similarities_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        PyArray1::from_slice(py, &self.similarities)
+    }
+
+    /// Return `smoothed` as a numpy array.
+    #[getter]
+    fn smoothed_array<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f64>> {
+        PyArray1::from_slice(py, &self.smoothed)
+    }
 }
 
 /// Run semantic chunking with a provider.
