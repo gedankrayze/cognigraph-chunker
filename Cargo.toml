@@ -45,5 +45,9 @@ unicode-segmentation = "1.12"
 # Markdown AST parsing
 pulldown-cmark = "0.13"
 
+# Web framework
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors"] }
+
 # Error handling
 anyhow = "1.0"

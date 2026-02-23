@@ -113,7 +113,7 @@ fn read_input(input: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 /// Parse comma-separated patterns, interpreting escape sequences.
-fn parse_patterns(s: &str) -> Vec<String> {
+pub(crate) fn parse_patterns(s: &str) -> Vec<String> {
     s.split(',')
         .map(|p| {
             let bytes = parse_delimiters(p);

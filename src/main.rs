@@ -30,6 +30,9 @@ EXAMPLES:
   # Print chunk statistics
   cognigraph-chunker chunk -i doc.md --stats
 
+  # Start REST API server
+  cognigraph-chunker serve --port 3000
+
   # Generate shell completions
   cognigraph-chunker completions bash > ~/.bash_completions/cognigraph-chunker
 ")]
@@ -72,6 +75,15 @@ EXAMPLES:
 ")]
     Semantic(cli::semantic_cmd::SemanticArgs),
 
+    /// Start REST API server
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker serve
+  cognigraph-chunker serve --port 8080
+  cognigraph-chunker serve --host 127.0.0.1 --port 3000 --api-key my-secret
+")]
+    Serve(cli::serve_cmd::ServeArgs),
+
     /// Generate shell completion scripts
     #[command(after_help = "\
 EXAMPLES:
@@ -94,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Chunk(args) => cli::chunk_cmd::run(args, &cli.global),
         Commands::Split(args) => cli::split_cmd::run(args, &cli.global),
         Commands::Semantic(args) => cli::semantic_cmd::run(args, &cli.global).await,
+        Commands::Serve(args) => cli::serve_cmd::run(args).await,
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             generate(*shell, &mut cmd, "cognigraph-chunker", &mut io::stdout());

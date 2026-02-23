@@ -113,7 +113,7 @@ fn read_input(input: &str) -> anyhow::Result<Vec<u8>> {
 }
 
 /// Parse delimiter string, interpreting escape sequences like \n, \t.
-fn parse_delimiters(s: &str) -> Vec<u8> {
+pub(crate) fn parse_delimiters(s: &str) -> Vec<u8> {
     let mut result = Vec::new();
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
