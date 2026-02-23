@@ -32,7 +32,7 @@ pip install cognigraph-chunker
 ### From source
 
 ```sh
-git clone https://github.com/skitsanos/cognigraph-chunker.git
+git clone https://github.com/gedankrayze/cognigraph-chunker.git
 cd cognigraph-chunker
 cargo build --release
 ```
@@ -529,6 +529,46 @@ ollama pull nomic-embed-text
 ```sh
 cognigraph-chunker semantic -i doc.md -p onnx --model-path ./models/all-MiniLM-L6-v2
 ```
+
+## Docker
+
+### Build
+
+```sh
+docker build -t cognigraph-chunker .
+```
+
+### Run
+
+```sh
+# With API key authentication
+docker run -p 3000:3000 -e API_KEY=my-secret cognigraph-chunker
+
+# Without authentication (development)
+docker run -p 3000:3000 -e NO_AUTH=1 cognigraph-chunker
+
+# With OpenAI embeddings and CORS
+docker run -p 3000:3000 \
+  -e API_KEY=my-secret \
+  -e OPENAI_API_KEY=sk-... \
+  -e CORS_ORIGINS=https://example.com \
+  cognigraph-chunker
+```
+
+### Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `PORT` | Server port (default: `3000`). Automatically set by Railway, Render, Fly.io. |
+| `API_KEY` | Bearer token for API authentication |
+| `NO_AUTH` | Set to `1` to disable authentication |
+| `CORS_ORIGINS` | Allowed CORS origins |
+| `OPENAI_API_KEY` | OpenAI API key for the `openai` embedding provider |
+| `ORT_DYLIB_PATH` | Custom path to `libonnxruntime.so` (bundled by default) |
+
+### Deploy on Railway / Render / Fly.io
+
+The Dockerfile is ready for container platforms that inject a `PORT` environment variable. Push to your Git repository and connect it to your platform of choice. Set `API_KEY` (or `NO_AUTH=1`) in the platform's environment variable settings.
 
 ## Architecture
 
