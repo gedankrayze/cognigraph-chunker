@@ -1,0 +1,8 @@
+target/
+.git/
+.env*
+.claude/
+models/
+tests/
+*.md
+!Cargo.toml
