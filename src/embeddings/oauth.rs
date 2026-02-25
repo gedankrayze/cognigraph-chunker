@@ -194,7 +194,11 @@ impl EmbeddingProvider for OAuthProvider {
 
         if !status.is_success() {
             if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
-                bail!("OAuth embedding API error ({}): {}", status, err.error.message);
+                bail!(
+                    "OAuth embedding API error ({}): {}",
+                    status,
+                    err.error.message
+                );
             }
             bail!("OAuth embedding API error ({}): {}", status, body);
         }
@@ -240,9 +244,15 @@ pub fn resolve_oauth_credentials(
     base_url: &Option<String>,
     model: &Option<String>,
 ) -> Result<OAuthCredentials> {
-    let mut t_url = token_url.clone().or_else(|| env_non_empty("OAUTH_TOKEN_URL"));
-    let mut c_id = client_id.clone().or_else(|| env_non_empty("OAUTH_CLIENT_ID"));
-    let mut c_secret = client_secret.clone().or_else(|| env_non_empty("OAUTH_CLIENT_SECRET"));
+    let mut t_url = token_url
+        .clone()
+        .or_else(|| env_non_empty("OAUTH_TOKEN_URL"));
+    let mut c_id = client_id
+        .clone()
+        .or_else(|| env_non_empty("OAUTH_CLIENT_ID"));
+    let mut c_secret = client_secret
+        .clone()
+        .or_else(|| env_non_empty("OAUTH_CLIENT_SECRET"));
     let mut sc = scope.clone().or_else(|| env_non_empty("OAUTH_SCOPE"));
     let mut b_url = base_url.clone().or_else(|| env_non_empty("OAUTH_BASE_URL"));
     let mut mdl = model.clone().or_else(|| env_non_empty("OAUTH_MODEL"));

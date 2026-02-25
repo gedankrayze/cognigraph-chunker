@@ -70,7 +70,11 @@ impl CloudflareProvider {
             .context("Failed to read Cloudflare token verification response")?;
 
         if !status.is_success() {
-            bail!("Cloudflare token verification failed ({}): {}", status, body);
+            bail!(
+                "Cloudflare token verification failed ({}): {}",
+                status,
+                body
+            );
         }
 
         let parsed: VerifyResponse =
@@ -225,9 +229,15 @@ pub fn resolve_cloudflare_credentials(
     account_id: &Option<String>,
     ai_gateway: &Option<String>,
 ) -> Result<(String, String, Option<String>)> {
-    let mut token = auth_token.clone().or_else(|| env_non_empty("CLOUDFLARE_AUTH_TOKEN"));
-    let mut acct = account_id.clone().or_else(|| env_non_empty("CLOUDFLARE_ACCOUNT_ID"));
-    let mut gw = ai_gateway.clone().or_else(|| env_non_empty("CLOUDFLARE_AI_GATEWAY"));
+    let mut token = auth_token
+        .clone()
+        .or_else(|| env_non_empty("CLOUDFLARE_AUTH_TOKEN"));
+    let mut acct = account_id
+        .clone()
+        .or_else(|| env_non_empty("CLOUDFLARE_ACCOUNT_ID"));
+    let mut gw = ai_gateway
+        .clone()
+        .or_else(|| env_non_empty("CLOUDFLARE_AI_GATEWAY"));
 
     // Try .env.cloudflare file for any still-missing values
     if (token.is_none() || acct.is_none() || gw.is_none())

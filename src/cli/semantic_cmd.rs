@@ -5,7 +5,9 @@ use std::path::PathBuf;
 
 use clap::Args;
 
-use cognigraph_chunker::embeddings::cloudflare::{CloudflareProvider, resolve_cloudflare_credentials};
+use cognigraph_chunker::embeddings::cloudflare::{
+    CloudflareProvider, resolve_cloudflare_credentials,
+};
 use cognigraph_chunker::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
 use cognigraph_chunker::embeddings::ollama::OllamaProvider;
 use cognigraph_chunker::embeddings::onnx::OnnxProvider;
@@ -161,8 +163,7 @@ pub async fn run(args: &SemanticArgs, global: &GlobalOpts) -> anyhow::Result<()>
                 &args.cf_account_id,
                 &args.cf_ai_gateway,
             )?;
-            let provider =
-                CloudflareProvider::new(token, account_id, args.model.clone(), gateway)?;
+            let provider = CloudflareProvider::new(token, account_id, args.model.clone(), gateway)?;
             global.detail("[cloudflare] verifying auth token...");
             provider.verify_token().await?;
             global.detail("[cloudflare] token verified");
