@@ -8,6 +8,8 @@ use axum::extract::State;
 use serde::Deserialize;
 
 use crate::embeddings::EmbeddingProvider;
+use crate::embeddings::cloudflare::{CloudflareProvider, resolve_cloudflare_credentials};
+use crate::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
 use crate::embeddings::ollama::OllamaProvider;
 use crate::embeddings::onnx::OnnxProvider;
 use crate::embeddings::openai::OpenAiProvider;
@@ -42,6 +44,16 @@ pub struct SemanticRequest {
     pub api_key: Option<String>,
     pub base_url: Option<String>,
     pub model_path: Option<String>,
+    pub cf_auth_token: Option<String>,
+    pub cf_account_id: Option<String>,
+    pub cf_ai_gateway: Option<String>,
+    pub oauth_token_url: Option<String>,
+    pub oauth_client_id: Option<String>,
+    pub oauth_client_secret: Option<String>,
+    pub oauth_scope: Option<String>,
+    pub oauth_base_url: Option<String>,
+    #[serde(default)]
+    pub danger_accept_invalid_certs: bool,
     #[serde(default = "default_sim_window")]
     pub sim_window: usize,
     #[serde(default = "default_sg_window")]
@@ -64,6 +76,8 @@ pub enum ProviderParam {
     Ollama,
     Openai,
     Onnx,
+    Cloudflare,
+    Oauth,
 }
 
 fn default_provider() -> ProviderParam {
@@ -191,6 +205,37 @@ pub async fn semantic_handler(
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("model_path is required for onnx provider"))?;
             let provider = OnnxProvider::new(model_path)?;
+            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
+        }
+        ProviderParam::Cloudflare => {
+            let (token, account_id, gateway) = resolve_cloudflare_credentials(
+                &req.cf_auth_token,
+                &req.cf_account_id,
+                &req.cf_ai_gateway,
+            )?;
+            let provider = CloudflareProvider::new(token, account_id, req.model.clone(), gateway)?;
+            provider.verify_token().await?;
+            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
+        }
+        ProviderParam::Oauth => {
+            let creds = resolve_oauth_credentials(
+                &req.oauth_token_url,
+                &req.oauth_client_id,
+                &req.oauth_client_secret,
+                &req.oauth_scope,
+                &req.oauth_base_url,
+                &req.model,
+            )?;
+            let provider = OAuthProvider::new(
+                creds.token_url,
+                creds.client_id,
+                creds.client_secret,
+                creds.scope,
+                creds.base_url,
+                creds.model,
+                req.danger_accept_invalid_certs,
+            )?;
+            provider.verify_credentials().await?;
             run_semantic(&req.text, &provider, &config, req.no_markdown).await?
         }
     };

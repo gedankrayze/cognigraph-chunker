@@ -1,5 +1,7 @@
 //! Embedding providers for semantic chunking.
 
+pub mod cloudflare;
+pub mod oauth;
 pub mod ollama;
 pub mod onnx;
 pub mod openai;
@@ -29,4 +31,8 @@ pub enum ProviderType {
     Ollama,
     /// Local ONNX Runtime model
     Onnx,
+    /// Cloudflare Workers AI embeddings
+    Cloudflare,
+    /// OAuth-authenticated OpenAI-compatible endpoint
+    Oauth,
 }

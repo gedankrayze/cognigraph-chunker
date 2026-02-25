@@ -73,7 +73,7 @@ EXAMPLES:
   cognigraph-chunker semantic -i doc.md --emit-distances 2>distances.tsv
   cognigraph-chunker semantic -i doc.md --no-markdown
 ")]
-    Semantic(cli::semantic_cmd::SemanticArgs),
+    Semantic(Box<cli::semantic_cmd::SemanticArgs>),
 
     /// Start REST API server
     #[command(after_help = "\

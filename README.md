@@ -10,7 +10,7 @@ Fast text chunking toolkit with fixed-size, delimiter-based, and semantic strate
 
 - **Three chunking strategies** -- fixed-size with delimiter-aware boundaries, delimiter/pattern splitting, and embedding-based semantic chunking
 - **Three interfaces** -- CLI tool, REST API (Axum), and Python bindings (PyO3)
-- **Three embedding providers** -- OpenAI, Ollama, and ONNX Runtime (local)
+- **Five embedding providers** -- OpenAI, Ollama, ONNX Runtime (local), Cloudflare Workers AI, and OAuth-authenticated OpenAI-compatible endpoints
 - **Markdown-aware** -- semantic chunker parses markdown AST to preserve tables, code blocks, headings, and lists as atomic units
 - **Merge post-processing** -- combine small chunks into token-budget groups across all strategies
 - **Output formats** -- plain text, JSON, and JSONL
@@ -160,11 +160,20 @@ Split text based on embedding similarity using Savitzky-Golay smoothing to detec
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--input` | `-i` | `-` (stdin) | Input file path, or `-` for stdin |
-| `--provider` | `-p` | `ollama` | Embedding provider: `ollama`, `openai`, `onnx` |
+| `--provider` | `-p` | `ollama` | Embedding provider: `ollama`, `openai`, `onnx`, `cloudflare`, `oauth` |
 | `--model` | `-m` | provider default | Model name (provider-specific) |
 | `--api-key` | | none | API key for OpenAI (also reads env/file) |
 | `--base-url` | | none | Base URL override for the embedding API |
 | `--model-path` | | none | Path to ONNX model directory (required for `onnx` provider) |
+| `--cf-auth-token` | | none | Cloudflare auth token (also reads env/`.env.cloudflare`) |
+| `--cf-account-id` | | none | Cloudflare account ID (also reads env/`.env.cloudflare`) |
+| `--cf-ai-gateway` | | none | Cloudflare AI Gateway name (optional; routes through gateway) |
+| `--oauth-token-url` | | none | OAuth token endpoint URL (also reads env/`.env.oauth`) |
+| `--oauth-client-id` | | none | OAuth client ID (also reads env/`.env.oauth`) |
+| `--oauth-client-secret` | | none | OAuth client secret (also reads env/`.env.oauth`) |
+| `--oauth-scope` | | none | OAuth scope (optional; also reads env/`.env.oauth`) |
+| `--oauth-base-url` | | none | Base URL for the OpenAI-compatible API (also reads env/`.env.oauth`) |
+| `--danger-accept-invalid-certs` | | off | Accept invalid TLS certificates (for corporate proxies) |
 | `--sim-window` | | 3 | Window size for cross-similarity computation (must be odd, >= 3) |
 | `--sg-window` | | 11 | Savitzky-Golay smoothing window size (must be odd) |
 | `--poly-order` | | 3 | Savitzky-Golay polynomial order |
@@ -196,6 +205,18 @@ cognigraph-chunker semantic -i doc.md --no-markdown
 
 # Local ONNX model
 cognigraph-chunker semantic -i doc.md -p onnx --model-path ./models/all-MiniLM-L6-v2
+
+# Cloudflare Workers AI (reads credentials from .env.cloudflare)
+cognigraph-chunker semantic -i doc.md -p cloudflare
+
+# Cloudflare via AI Gateway
+cognigraph-chunker semantic -i doc.md -p cloudflare --cf-ai-gateway my-gateway
+
+# OAuth-authenticated endpoint (reads credentials from .env.oauth)
+cognigraph-chunker semantic -i doc.md -p oauth
+
+# OAuth with custom CA (corporate proxy)
+cognigraph-chunker semantic -i doc.md -p oauth --danger-accept-invalid-certs
 ```
 
 ### `serve` -- REST API server
@@ -311,6 +332,15 @@ Semantic chunking with embeddings.
   "api_key": null,
   "base_url": null,
   "model_path": null,
+  "cf_auth_token": null,
+  "cf_account_id": null,
+  "cf_ai_gateway": null,
+  "oauth_token_url": null,
+  "oauth_client_id": null,
+  "oauth_client_secret": null,
+  "oauth_scope": null,
+  "oauth_base_url": null,
+  "danger_accept_invalid_certs": false,
   "sim_window": 3,
   "sg_window": 11,
   "poly_order": 3,
@@ -322,8 +352,12 @@ Semantic chunking with embeddings.
 }
 ```
 
-- `provider`: `"ollama"` (default), `"openai"`, or `"onnx"`
+- `provider`: `"ollama"` (default), `"openai"`, `"onnx"`, `"cloudflare"`, or `"oauth"`
 - `model_path` is required when `provider` is `"onnx"`
+- `cf_auth_token` and `cf_account_id` are required for `"cloudflare"` (also reads env vars or `.env.cloudflare`)
+- `cf_ai_gateway` optionally routes requests through a Cloudflare AI Gateway
+- `oauth_*` fields are required for `"oauth"` (also reads env vars or `.env.oauth`)
+- `danger_accept_invalid_certs` disables TLS verification for corporate proxies with custom CAs
 - `base_url` is validated against SSRF (private IPs rejected unless `--allow-private-urls` is set)
 
 **Response:** Same structure as `/api/v1/chunk`.
@@ -503,6 +537,15 @@ print(filtered.indices, filtered.values)
 |----------|-------------|
 | `OPENAI_API_KEY` | OpenAI API key (used by `openai` provider) |
 | `OLLAMA_HOST` | Ollama server URL (default: `http://localhost:11434`) |
+| `CLOUDFLARE_AUTH_TOKEN` | Cloudflare API token (used by `cloudflare` provider) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (used by `cloudflare` provider) |
+| `CLOUDFLARE_AI_GATEWAY` | Cloudflare AI Gateway name (optional; routes through gateway) |
+| `OAUTH_TOKEN_URL` | OAuth token endpoint URL (used by `oauth` provider) |
+| `OAUTH_CLIENT_ID` | OAuth client ID (used by `oauth` provider) |
+| `OAUTH_CLIENT_SECRET` | OAuth client secret (used by `oauth` provider) |
+| `OAUTH_SCOPE` | OAuth scope (optional) |
+| `OAUTH_BASE_URL` | Base URL for the OpenAI-compatible API (used by `oauth` provider) |
+| `OAUTH_MODEL` | Model name (used by `oauth` provider) |
 
 ### `.env.openai` File
 
@@ -513,6 +556,33 @@ OPENAI_API_KEY=sk-...
 ```
 
 Key resolution order: `--api-key` flag / `api_key` field > `OPENAI_API_KEY` env var > `.env.openai` file.
+
+### `.env.cloudflare` File
+
+The Cloudflare provider reads credentials from a `.env.cloudflare` file in the working directory:
+
+```
+CLOUDFLARE_AUTH_TOKEN=your-token
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+CLOUDFLARE_AI_GATEWAY=your-gateway-name
+```
+
+Key resolution order: CLI flags / request fields > environment variables > `.env.cloudflare` file.
+
+### `.env.oauth` File
+
+The OAuth provider reads credentials from a `.env.oauth` file in the working directory:
+
+```
+OAUTH_TOKEN_URL=https://auth.example.com/api/oauth/token
+OAUTH_CLIENT_ID=your-client-id
+OAUTH_CLIENT_SECRET=your-client-secret
+OAUTH_SCOPE=embeddings
+OAUTH_BASE_URL=https://api.example.com/llm-api
+OAUTH_MODEL=text-embedding-3-small
+```
+
+Key resolution order: CLI flags / request fields > environment variables > `.env.oauth` file.
 
 ### Embedding Provider Setup
 
@@ -528,6 +598,20 @@ ollama pull nomic-embed-text
 
 ```sh
 cognigraph-chunker semantic -i doc.md -p onnx --model-path ./models/all-MiniLM-L6-v2
+```
+
+**Cloudflare Workers AI** -- Uses Cloudflare's hosted embedding models (e.g., `@cf/baai/bge-m3`, `@cf/qwen/qwen3-embedding-0.6b`). Set credentials via environment variables or `.env.cloudflare` file. The token is verified at startup. Optionally route requests through an AI Gateway for logging and rate limiting.
+
+```sh
+cognigraph-chunker semantic -i doc.md -p cloudflare
+cognigraph-chunker semantic -i doc.md -p cloudflare --cf-ai-gateway my-gateway -m @cf/qwen/qwen3-embedding-0.6b
+```
+
+**OAuth** -- For OpenAI-compatible APIs behind OAuth2 client credentials authentication (e.g., corporate API gateways). Set credentials via environment variables or `.env.oauth` file. The token is acquired automatically, cached, and refreshed before expiry. Use `--danger-accept-invalid-certs` for endpoints behind corporate proxies with custom CAs.
+
+```sh
+cognigraph-chunker semantic -i doc.md -p oauth
+cognigraph-chunker semantic -i doc.md -p oauth --danger-accept-invalid-certs
 ```
 
 ## Docker
@@ -564,6 +648,15 @@ docker run -p 3000:3000 \
 | `NO_AUTH` | Set to `1` to disable authentication |
 | `CORS_ORIGINS` | Allowed CORS origins |
 | `OPENAI_API_KEY` | OpenAI API key for the `openai` embedding provider |
+| `CLOUDFLARE_AUTH_TOKEN` | Cloudflare API token for the `cloudflare` embedding provider |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for the `cloudflare` embedding provider |
+| `CLOUDFLARE_AI_GATEWAY` | Cloudflare AI Gateway name (optional) |
+| `OAUTH_TOKEN_URL` | OAuth token endpoint URL for the `oauth` embedding provider |
+| `OAUTH_CLIENT_ID` | OAuth client ID for the `oauth` embedding provider |
+| `OAUTH_CLIENT_SECRET` | OAuth client secret for the `oauth` embedding provider |
+| `OAUTH_SCOPE` | OAuth scope (optional) |
+| `OAUTH_BASE_URL` | Base URL for the OpenAI-compatible API |
+| `OAUTH_MODEL` | Model name for the `oauth` embedding provider |
 | `ORT_DYLIB_PATH` | Custom path to `libonnxruntime.so` (bundled by default) |
 
 ### Deploy on Railway / Render / Fly.io

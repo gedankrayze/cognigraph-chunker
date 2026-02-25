@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 use clap::Args;
 
+use cognigraph_chunker::embeddings::cloudflare::{CloudflareProvider, resolve_cloudflare_credentials};
+use cognigraph_chunker::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
 use cognigraph_chunker::embeddings::ollama::OllamaProvider;
 use cognigraph_chunker::embeddings::onnx::OnnxProvider;
 use cognigraph_chunker::embeddings::openai::OpenAiProvider;
@@ -40,6 +42,42 @@ pub struct SemanticArgs {
     /// Path to ONNX model directory (for onnx provider)
     #[arg(long)]
     pub model_path: Option<String>,
+
+    /// Cloudflare auth token (also reads CLOUDFLARE_AUTH_TOKEN env or .env.cloudflare)
+    #[arg(long)]
+    pub cf_auth_token: Option<String>,
+
+    /// Cloudflare account ID (also reads CLOUDFLARE_ACCOUNT_ID env or .env.cloudflare)
+    #[arg(long)]
+    pub cf_account_id: Option<String>,
+
+    /// Cloudflare AI Gateway name (optional; also reads CLOUDFLARE_AI_GATEWAY env or .env.cloudflare)
+    #[arg(long)]
+    pub cf_ai_gateway: Option<String>,
+
+    /// OAuth token endpoint URL (also reads OAUTH_TOKEN_URL env or .env.oauth)
+    #[arg(long)]
+    pub oauth_token_url: Option<String>,
+
+    /// OAuth client ID (also reads OAUTH_CLIENT_ID env or .env.oauth)
+    #[arg(long)]
+    pub oauth_client_id: Option<String>,
+
+    /// OAuth client secret (also reads OAUTH_CLIENT_SECRET env or .env.oauth)
+    #[arg(long)]
+    pub oauth_client_secret: Option<String>,
+
+    /// OAuth scope (optional; also reads OAUTH_SCOPE env or .env.oauth)
+    #[arg(long)]
+    pub oauth_scope: Option<String>,
+
+    /// OAuth base URL for the OpenAI-compatible API (also reads OAUTH_BASE_URL env or .env.oauth)
+    #[arg(long)]
+    pub oauth_base_url: Option<String>,
+
+    /// Accept invalid TLS certificates (for corporate proxies with custom CAs)
+    #[arg(long)]
+    pub danger_accept_invalid_certs: bool,
 
     /// Window size for cross-similarity computation (must be odd, >= 3)
     #[arg(long, default_value_t = 3)]
@@ -115,6 +153,42 @@ pub async fn run(args: &SemanticArgs, global: &GlobalOpts) -> anyhow::Result<()>
                 )
             })?;
             let provider = OnnxProvider::new(model_path)?;
+            run_pipeline(&text_str, &provider, &config, args, global).await
+        }
+        ProviderType::Cloudflare => {
+            let (token, account_id, gateway) = resolve_cloudflare_credentials(
+                &args.cf_auth_token,
+                &args.cf_account_id,
+                &args.cf_ai_gateway,
+            )?;
+            let provider =
+                CloudflareProvider::new(token, account_id, args.model.clone(), gateway)?;
+            global.detail("[cloudflare] verifying auth token...");
+            provider.verify_token().await?;
+            global.detail("[cloudflare] token verified");
+            run_pipeline(&text_str, &provider, &config, args, global).await
+        }
+        ProviderType::Oauth => {
+            let creds = resolve_oauth_credentials(
+                &args.oauth_token_url,
+                &args.oauth_client_id,
+                &args.oauth_client_secret,
+                &args.oauth_scope,
+                &args.oauth_base_url,
+                &args.model,
+            )?;
+            let provider = OAuthProvider::new(
+                creds.token_url,
+                creds.client_id,
+                creds.client_secret,
+                creds.scope,
+                creds.base_url,
+                creds.model,
+                args.danger_accept_invalid_certs,
+            )?;
+            global.detail("[oauth] acquiring token...");
+            provider.verify_credentials().await?;
+            global.detail("[oauth] token acquired");
             run_pipeline(&text_str, &provider, &config, args, global).await
         }
     }

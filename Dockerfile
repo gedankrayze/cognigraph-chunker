@@ -33,7 +33,7 @@ RUN tar -xzf /tmp/ort.tgz -C /tmp && \
 FROM debian:bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/cognigraph-chunker /usr/local/bin/cognigraph-chunker
@@ -49,12 +49,18 @@ ENV PORT=3000
 EXPOSE ${PORT}
 
 # Environment variables for runtime configuration:
-#   PORT           - server port (default: 3000)
-#   API_KEY        - Bearer token for authentication
-#   NO_AUTH        - set to "1" to disable auth
-#   CORS_ORIGINS   - comma-separated allowed origins
-#   OPENAI_API_KEY - for OpenAI embedding provider
-#   ORT_DYLIB_PATH - path to libonnxruntime.so (default: system lib path)
+#   PORT                   - server port (default: 3000)
+#   API_KEY                - Bearer token for authentication
+#   NO_AUTH                - set to "1" to disable auth
+#   CORS_ORIGINS           - comma-separated allowed origins
+#   OPENAI_API_KEY         - for OpenAI embedding provider
+#   CLOUDFLARE_AUTH_TOKEN  - for Cloudflare Workers AI embedding provider
+#   CLOUDFLARE_ACCOUNT_ID  - Cloudflare account ID
+#   CLOUDFLARE_AI_GATEWAY  - Cloudflare AI Gateway name (optional)
+#   ORT_DYLIB_PATH         - path to libonnxruntime.so (default: system lib path)
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/api/v1/health || exit 1
 
 ENTRYPOINT ["sh", "-c", \
   "exec cognigraph-chunker serve \
