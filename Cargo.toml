@@ -5,6 +5,7 @@ members = [".", "packages/python"]
 name = "cognigraph-chunker"
 version = "1.1.0"
 edition = "2024"
+license = "MIT"
 
 [lib]
 name = "cognigraph_chunker"
