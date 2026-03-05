@@ -18,7 +18,7 @@ use providers::{PyOllamaProvider, PyOnnxProvider, PyOpenAiProvider};
 static RUNTIME: LazyLock<tokio::runtime::Runtime> =
     LazyLock::new(|| tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"));
 
-#[pyclass(name = "SemanticConfig")]
+#[pyclass(name = "SemanticConfig", from_py_object)]
 #[derive(Clone)]
 pub struct PySemanticConfig {
     #[pyo3(get, set)]
@@ -119,15 +119,15 @@ pub fn py_semantic_chunk(
     // CPU/IO bound (network requests for embeddings) and Python threads can't run
     // Rust code concurrently anyway.
     let _ = py;
-    if let Ok(p) = provider.downcast::<PyOllamaProvider>() {
+    if let Ok(p) = provider.cast::<PyOllamaProvider>() {
         let provider_ref = p.borrow();
         return run_semantic(&text_owned, &provider_ref.inner, &rust_config, markdown);
     }
-    if let Ok(p) = provider.downcast::<PyOpenAiProvider>() {
+    if let Ok(p) = provider.cast::<PyOpenAiProvider>() {
         let provider_ref = p.borrow();
         return run_semantic(&text_owned, &provider_ref.inner, &rust_config, markdown);
     }
-    if let Ok(p) = provider.downcast::<PyOnnxProvider>() {
+    if let Ok(p) = provider.cast::<PyOnnxProvider>() {
         let provider_ref = p.borrow();
         return run_semantic(&text_owned, &provider_ref.inner, &rust_config, markdown);
     }

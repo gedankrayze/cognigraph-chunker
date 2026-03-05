@@ -9,7 +9,7 @@ use cognigraph_chunker::core::{
 /// Extract a `Vec<f64>` from either a numpy array or a Python list.
 fn extract_f64_vec(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
     // Try numpy array first, then fall back to list.
-    if let Ok(arr) = obj.downcast::<PyArray1<f64>>() {
+    if let Ok(arr) = obj.cast::<PyArray1<f64>>() {
         let readonly = arr.try_readonly().map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("cannot borrow array: {e}"))
         })?;
@@ -22,7 +22,7 @@ fn extract_f64_vec(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
     }
 }
 
-#[pyclass(name = "MinimaResult")]
+#[pyclass(name = "MinimaResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyMinimaResult {
     #[pyo3(get)]
@@ -40,7 +40,7 @@ impl PyMinimaResult {
     }
 }
 
-#[pyclass(name = "FilteredIndices")]
+#[pyclass(name = "FilteredIndices", from_py_object)]
 #[derive(Clone)]
 pub struct PyFilteredIndices {
     #[pyo3(get)]

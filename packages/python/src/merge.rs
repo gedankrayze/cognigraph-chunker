@@ -5,7 +5,7 @@ use cognigraph_chunker::core::{
     find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits,
 };
 
-#[pyclass(name = "MergeResult")]
+#[pyclass(name = "MergeResult", from_py_object)]
 #[derive(Clone)]
 pub struct PyMergeResult {
     #[pyo3(get)]
