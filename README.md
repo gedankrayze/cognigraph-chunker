@@ -2,8 +2,6 @@
 
 Fast text chunking toolkit with fixed-size, delimiter-based, and semantic strategies.
 
-[![Crates.io](https://img.shields.io/crates/v/cognigraph-chunker)](https://crates.io/crates/cognigraph-chunker)
-[![docs.rs](https://img.shields.io/docsrs/cognigraph-chunker)](https://docs.rs/cognigraph-chunker)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Features
