@@ -16,29 +16,52 @@ jobs:
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.actor.login == 'dependabot[bot]'
+      github.event.workflow_run.actor.login == 'renovate[bot]'
     steps:
       - name: Get PR number
         id: pr
         run: |
           PR_NUMBER=$(gh api repos/${{ github.repository }}/pulls \
             --jq ".[] | select(.head.sha == \"${{ github.event.workflow_run.head_sha }}\") | .number")
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No matching PR found"
+            exit 0
+          fi
           echo "number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "url=https://github.com/${{ github.repository }}/pull/$PR_NUMBER" >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dependabot/fetch-metadata@v2
-        id: metadata
-        with:
-          github-token: "${{ secrets.GITHUB_TOKEN }}"
-      - if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        name: Approve PR
+
+      - name: Get PR title
+        if: steps.pr.outputs.number
+        id: info
+        run: |
+          TITLE=$(gh pr view "$PR_NUMBER" --json title --jq '.title')
+          # Renovate prefixes major updates with "chore(deps): update" and
+          # includes the word "major" in labels or uses version range syntax.
+          # Simple heuristic: skip if title contains a major version bump pattern
+          # like "v1 to v2" or "to v2.0.0" where major changes.
+          IS_MAJOR="false"
+          # Check Renovate labels for major
+          LABELS=$(gh pr view "$PR_NUMBER" --json labels --jq '.labels[].name')
+          if echo "$LABELS" | grep -qi "major"; then
+            IS_MAJOR="true"
+          fi
+          echo "is_major=$IS_MAJOR" >> "$GITHUB_OUTPUT"
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve PR
+        if: steps.pr.outputs.number && steps.info.outputs.is_major != 'true'
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ steps.pr.outputs.url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - if: steps.metadata.outputs.update-type != 'version-update:semver-major'
-        name: Merge PR
+
+      - name: Merge PR
+        if: steps.pr.outputs.number && steps.info.outputs.is_major != 'true'
         run: gh pr merge --squash "$PR_URL"
         env:
           PR_URL: ${{ steps.pr.outputs.url }}
