@@ -15,7 +15,7 @@ use crate::signal::PyFilteredIndices;
 use providers::{PyOllamaProvider, PyOnnxProvider, PyOpenAiProvider};
 
 /// Shared Tokio runtime for all Python → async Rust calls.
-static RUNTIME: LazyLock<tokio::runtime::Runtime> =
+pub(crate) static RUNTIME: LazyLock<tokio::runtime::Runtime> =
     LazyLock::new(|| tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime"));
 
 #[pyclass(name = "SemanticConfig", from_py_object)]

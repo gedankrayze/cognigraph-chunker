@@ -6,6 +6,14 @@
 //! Paragraphs are sentence-split for fine-grained boundary detection.
 
 pub mod blocks;
+pub mod cognitive_assemble;
+pub mod cognitive_rerank;
+pub mod cognitive_score;
+pub mod cognitive_types;
+pub mod diagnostics;
+pub mod enrichment;
+pub mod evaluation;
+pub mod graph_export;
 pub mod sentence;
 
 use anyhow::{Result, bail};
@@ -310,6 +318,199 @@ fn group_blocks_at_boundaries(
 
 fn join_blocks(blocks: &[Block<'_>]) -> String {
     blocks.iter().map(|b| b.text).collect::<Vec<_>>().join("")
+}
+
+// ── Cognitive chunking pipeline ─────────────────────────────────────
+
+use cognitive_assemble::assemble_chunks;
+use cognitive_rerank::{find_ambiguous_boundaries, refine_boundaries};
+use cognitive_score::score_boundaries;
+use cognitive_types::{CognitiveConfig, CognitiveResult};
+use enrichment::enrich_blocks;
+
+use crate::embeddings::reranker::RerankerProvider;
+
+/// Run the cognition-aware chunking pipeline with markdown-aware parsing.
+///
+/// Pipeline: parse → blocks → enrich → embed → score boundaries → assemble chunks
+pub async fn cognitive_chunk<P: EmbeddingProvider>(
+    text: &str,
+    provider: &P,
+    config: &CognitiveConfig,
+) -> Result<CognitiveResult> {
+    let blocks = split_blocks(text);
+    run_cognitive_pipeline(blocks, provider, config, None::<&NoReranker>).await
+}
+
+/// Run the cognition-aware chunking pipeline with plain text (no markdown).
+pub async fn cognitive_chunk_plain<P: EmbeddingProvider>(
+    text: &str,
+    provider: &P,
+    config: &CognitiveConfig,
+) -> Result<CognitiveResult> {
+    let sentences = split_sentences(text);
+    let blocks: Vec<Block<'_>> = sentences
+        .into_iter()
+        .map(|s| Block {
+            text: s.text,
+            offset: s.offset,
+            kind: BlockKind::Sentence,
+        })
+        .collect();
+    run_cognitive_pipeline(blocks, provider, config, None::<&NoReranker>).await
+}
+
+/// Run cognitive chunking with reranker for ambiguous boundary refinement.
+pub async fn cognitive_chunk_with_reranker<P: EmbeddingProvider, R: RerankerProvider>(
+    text: &str,
+    provider: &P,
+    config: &CognitiveConfig,
+    reranker: &R,
+) -> Result<CognitiveResult> {
+    let blocks = split_blocks(text);
+    run_cognitive_pipeline(blocks, provider, config, Some(reranker)).await
+}
+
+/// Run cognitive chunking (plain text) with reranker.
+pub async fn cognitive_chunk_plain_with_reranker<P: EmbeddingProvider, R: RerankerProvider>(
+    text: &str,
+    provider: &P,
+    config: &CognitiveConfig,
+    reranker: &R,
+) -> Result<CognitiveResult> {
+    let sentences = split_sentences(text);
+    let blocks: Vec<Block<'_>> = sentences
+        .into_iter()
+        .map(|s| Block {
+            text: s.text,
+            offset: s.offset,
+            kind: BlockKind::Sentence,
+        })
+        .collect();
+    run_cognitive_pipeline(blocks, provider, config, Some(reranker)).await
+}
+
+/// No-op reranker used as a type witness when reranking is disabled.
+struct NoReranker;
+impl RerankerProvider for NoReranker {
+    async fn rerank(&self, _query: &str, _documents: &[&str]) -> Result<Vec<f64>> {
+        Ok(vec![])
+    }
+    fn model_name(&self) -> &str {
+        "none"
+    }
+}
+
+async fn run_cognitive_pipeline<P: EmbeddingProvider, R: RerankerProvider>(
+    blocks: Vec<Block<'_>>,
+    provider: &P,
+    config: &CognitiveConfig,
+    reranker: Option<&R>,
+) -> Result<CognitiveResult> {
+    if blocks.is_empty() {
+        return Ok(CognitiveResult {
+            chunks: vec![],
+            signals: vec![],
+            block_count: 0,
+            evaluation: evaluation::EvaluationMetrics::default(),
+            shared_entities: std::collections::HashMap::new(),
+        });
+    }
+
+    if blocks.len() > config.max_blocks {
+        bail!(
+            "Input exceeds maximum block count ({} blocks, limit {}). \
+             Reduce input size or increase max_blocks.",
+            blocks.len(),
+            config.max_blocks
+        );
+    }
+
+    // Step 1: Enrich blocks with cognitive signals
+    let mut enriched = if let Some(lang) = config.language {
+        enrichment::enrich_blocks_with_language(&blocks, lang)
+    } else {
+        enrich_blocks(&blocks)
+    };
+
+    if enriched.len() == 1 {
+        return Ok(assemble_chunks(&enriched, vec![], config));
+    }
+
+    // Step 2: Embed all blocks
+    let block_texts: Vec<&str> = enriched.iter().map(|b| b.text.as_str()).collect();
+    let embeddings = provider.embed(&block_texts).await?;
+
+    if embeddings.len() != enriched.len() {
+        bail!(
+            "Provider returned {} embeddings for {} blocks",
+            embeddings.len(),
+            enriched.len()
+        );
+    }
+
+    let dim = embeddings[0].len();
+    if dim == 0 {
+        bail!("Embedding dimension is 0");
+    }
+
+    // Attach embeddings to enriched blocks
+    for (block, emb) in enriched.iter_mut().zip(embeddings.iter()) {
+        block.embedding = Some(emb.clone());
+    }
+
+    // Step 3: Compute semantic similarity curve
+    let flat_embeddings: Vec<f64> = embeddings.iter().flat_map(|e| e.iter().copied()).collect();
+
+    let similarities =
+        windowed_cross_similarity(&flat_embeddings, enriched.len(), dim, config.sim_window)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Failed to compute cross-similarity (sim_window={}, blocks={}, dim={})",
+                    config.sim_window,
+                    enriched.len(),
+                    dim
+                )
+            })?;
+
+    // Step 4: Smooth similarity curve
+    let effective_sg_window = clamp_odd_window(config.sg_window, similarities.len());
+    let effective_sg_window = if effective_sg_window <= config.poly_order {
+        0
+    } else {
+        effective_sg_window
+    };
+
+    let smoothed = if effective_sg_window >= 3 {
+        savgol_filter(&similarities, effective_sg_window, config.poly_order, 0)
+            .unwrap_or_else(|| similarities.clone())
+    } else {
+        similarities.clone()
+    };
+
+    // Step 5: Score boundaries using cognitive signals + smoothed similarity
+    let mut signals = score_boundaries(&enriched, &smoothed, &config.weights, config.soft_budget);
+
+    // Step 5b: Rerank ambiguous boundaries (if reranker provided)
+    if let Some(reranker) = reranker {
+        let ambiguous = find_ambiguous_boundaries(&signals, 0.5);
+        if !ambiguous.is_empty() {
+            refine_boundaries(&enriched, &mut signals, &ambiguous, reranker, 0.7).await?;
+        }
+    }
+
+    // Step 6: Assemble chunks (signals always included for evaluation)
+    let mut result = assemble_chunks(&enriched, signals, config);
+
+    // Step 7: Evaluate quality metrics
+    result.evaluation = evaluation::evaluate(&enriched, &result.signals, &result.chunks);
+
+    // Drop signals if not requested for output
+    if !config.emit_signals {
+        result.signals = vec![];
+    }
+
+    Ok(result)
 }
 
 #[cfg(test)]

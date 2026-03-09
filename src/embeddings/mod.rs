@@ -5,6 +5,7 @@ pub mod oauth;
 pub mod ollama;
 pub mod onnx;
 pub mod openai;
+pub mod reranker;
 
 use anyhow::Result;
 

@@ -1,6 +1,7 @@
 //! REST API module — Axum router setup and shared state.
 
 pub mod chunk;
+pub mod cognitive;
 pub mod errors;
 pub mod health;
 pub mod merge;
@@ -70,6 +71,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/semantic",
             axum::routing::post(semantic::semantic_handler),
+        )
+        .route(
+            "/api/v1/cognitive",
+            axum::routing::post(cognitive::cognitive_handler),
         )
         .route("/api/v1/merge", axum::routing::post(merge::merge_handler))
         .layer(middleware::from_fn_with_state(
