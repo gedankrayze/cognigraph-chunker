@@ -11,7 +11,7 @@ use ort::session::Session;
 use ort::value::Value;
 use tokenizers::Tokenizer;
 
-use super::EmbeddingProvider;
+use super::{EmbeddingProvider, ensure_onnx_runtime_available};
 
 /// ONNX Runtime embeddings provider for local inference.
 ///
@@ -28,6 +28,8 @@ impl OnnxProvider {
     ///
     /// The directory should contain `model.onnx` and `tokenizer.json`.
     pub fn new(model_path: &str) -> Result<Self> {
+        ensure_onnx_runtime_available().context("ONNX Runtime library is not available")?;
+
         let model_dir = PathBuf::from(model_path);
 
         let onnx_path = model_dir.join("model.onnx");

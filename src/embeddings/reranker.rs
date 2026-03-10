@@ -3,6 +3,7 @@
 //! Cross-encoders score text pairs more accurately than embedding similarity,
 //! but are expensive. Used only on ambiguous boundaries (Phase 3).
 
+use super::ensure_onnx_runtime_available;
 use anyhow::Result;
 
 /// Trait for reranking providers (cross-encoders).
@@ -39,6 +40,8 @@ pub struct OnnxReranker {
 impl OnnxReranker {
     /// Create a new ONNX reranker from a model directory.
     pub fn new(model_path: &str) -> Result<Self> {
+        ensure_onnx_runtime_available().context("ONNX Runtime library is not available")?;
+
         let model_dir = std::path::PathBuf::from(model_path);
 
         let onnx_path = model_dir.join("model.onnx");

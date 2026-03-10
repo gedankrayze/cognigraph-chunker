@@ -12,6 +12,7 @@ use crate::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
 use crate::embeddings::ollama::OllamaProvider;
 use crate::embeddings::onnx::OnnxProvider;
 use crate::embeddings::openai::OpenAiProvider;
+use crate::llm::{CompletionClient, LlmConfig, relations};
 use crate::semantic::cognitive_types::{CognitiveConfig, CognitiveResult, CognitiveWeights};
 use crate::semantic::diagnostics::signals_to_json;
 use crate::semantic::{cognitive_chunk, cognitive_chunk_plain};
@@ -162,7 +163,7 @@ pub async fn cognitive_handler(
         language,
     };
 
-    let result = match req.provider {
+    let mut result = match req.provider {
         ProviderParam::Ollama => {
             let provider = OllamaProvider::new(req.base_url.clone(), req.model.clone())?;
             run_cognitive(
@@ -248,6 +249,12 @@ pub async fn cognitive_handler(
         }
     };
 
+    if req.relations {
+        let llm_config = LlmConfig::resolve(&req.api_key, &req.base_url, &None)?;
+        let llm_client = CompletionClient::new(llm_config)?;
+        enrich_with_relations(&mut result, &llm_client).await?;
+    }
+
     if req.graph {
         let graph = crate::semantic::graph_export::to_chunk_graph(&result);
         Ok(Json(serde_json::to_value(graph).unwrap()))
@@ -255,6 +262,18 @@ pub async fn cognitive_handler(
         let response = build_response(result, req.emit_signals, req.relations);
         Ok(Json(serde_json::to_value(response).unwrap()))
     }
+}
+
+async fn enrich_with_relations(
+    result: &mut CognitiveResult,
+    client: &CompletionClient,
+) -> anyhow::Result<()> {
+    for chunk in &mut result.chunks {
+        if let Ok(relations) = relations::extract_relations(client, &chunk.text).await {
+            chunk.dominant_relations = relations;
+        }
+    }
+    Ok(())
 }
 
 async fn run_cognitive<P: EmbeddingProvider>(

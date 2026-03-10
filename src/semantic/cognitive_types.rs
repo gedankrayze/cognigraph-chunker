@@ -209,6 +209,8 @@ pub struct CognitiveChunk {
     pub heading_path: Vec<String>,
     /// Dominant entities in this chunk.
     pub dominant_entities: Vec<String>,
+    /// All normalized entities encountered in the chunk.
+    pub all_entities: Vec<String>,
     /// Dominant relation triples in this chunk (populated by LLM post-assembly).
     pub dominant_relations: Vec<crate::llm::relations::RelationTriple>,
     /// Estimated token count.

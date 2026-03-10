@@ -317,6 +317,7 @@ mod tests {
             offset_end: 10,
             heading_path: vec![],
             dominant_entities: vec![],
+            all_entities: vec![],
             dominant_relations: vec![],
             token_estimate: 10,
             continuity_confidence: 1.0,

@@ -57,7 +57,15 @@ pub fn assemble_chunks(
     apply_budget_breaks(blocks, &mut signals, config.hard_budget);
 
     // Step 3: Assemble chunks
-    let mut chunks = build_chunks(blocks, &signals);
+    let chunks = build_chunks(blocks, &signals);
+
+    // Step 3b: Proposition-aware healing — merge chunks with broken propositions
+    let (mut chunks, _heal_result) = super::proposition_heal::heal_proposition_breaks(
+        chunks,
+        blocks,
+        &signals,
+        config.hard_budget,
+    );
 
     // Step 4: Assign chunk indices and adjacency links
     let chunk_count = chunks.len();
@@ -221,6 +229,13 @@ fn create_chunk(
         .take(5)
         .map(|(name, _)| name)
         .collect();
+    let mut all_entities: Vec<String> = chunk_blocks
+        .iter()
+        .flat_map(|block| block.entities.iter())
+        .map(|entity| entity.normalized.clone())
+        .collect();
+    all_entities.sort();
+    all_entities.dedup();
 
     let token_estimate: usize = chunk_blocks.iter().map(|b| b.token_estimate).sum();
 
@@ -236,32 +251,26 @@ fn create_chunk(
 
     // Boundary reasons
     let boundary_reasons_start = if start > 0 {
+        let from_heading = blocks[start - 1].heading_path.as_slice();
+        let to_heading = blocks[start].heading_path.as_slice();
         signals
             .get(start - 1)
-            .map(|s| {
-                s.reasons
-                    .iter()
-                    .map(|_| BoundaryReason::TopicShift {
-                        similarity_drop: s.topic_shift_penalty,
-                    })
-                    .collect()
-            })
+            .map(|s| derive_boundary_reasons(s, from_heading, to_heading))
             .unwrap_or_default()
     } else {
         vec![]
     };
 
     let boundary_reasons_end = if end < signals.len() + 1 {
+        let from_heading = blocks[end - 1].heading_path.as_slice();
+        let to_heading = if end < blocks.len() {
+            blocks[end].heading_path.as_slice()
+        } else {
+            &[]
+        };
         signals
             .get(end - 1)
-            .map(|s| {
-                s.reasons
-                    .iter()
-                    .map(|_| BoundaryReason::TopicShift {
-                        similarity_drop: s.topic_shift_penalty,
-                    })
-                    .collect()
-            })
+            .map(|s| derive_boundary_reasons(s, from_heading, to_heading))
             .unwrap_or_default()
     } else {
         vec![]
@@ -274,6 +283,7 @@ fn create_chunk(
         offset_end,
         heading_path,
         dominant_entities,
+        all_entities,
         dominant_relations: vec![],
         token_estimate,
         continuity_confidence,
@@ -286,6 +296,14 @@ fn create_chunk(
 }
 
 fn single_block_chunk(block: &BlockEnvelope) -> CognitiveChunk {
+    let mut all_entities: Vec<String> = block
+        .entities
+        .iter()
+        .map(|entity| entity.normalized.clone())
+        .collect();
+    all_entities.sort();
+    all_entities.dedup();
+
     CognitiveChunk {
         text: block.text.clone(),
         chunk_index: 0,
@@ -297,6 +315,7 @@ fn single_block_chunk(block: &BlockEnvelope) -> CognitiveChunk {
             .iter()
             .map(|e| e.normalized.clone())
             .collect(),
+        all_entities,
         dominant_relations: vec![],
         token_estimate: block.token_estimate,
         continuity_confidence: 1.0,
@@ -308,6 +327,70 @@ fn single_block_chunk(block: &BlockEnvelope) -> CognitiveChunk {
     }
 }
 
+fn derive_boundary_reasons(
+    signal: &BoundarySignal,
+    from_heading: &[String],
+    to_heading: &[String],
+) -> Vec<BoundaryReason> {
+    let mut reasons = Vec::new();
+
+    for reason in &signal.reasons {
+        if reason.starts_with("high orphan risk") {
+            reasons.push(BoundaryReason::ContinuationGlue {
+                flags: reason.clone(),
+            });
+            continue;
+        }
+
+        if reason.starts_with("discourse continuation") {
+            reasons.push(BoundaryReason::DiscourseBreak);
+            continue;
+        }
+
+        if reason.starts_with("entity continuity") {
+            reasons.push(BoundaryReason::EntityDiscontinuity { orphaned: vec![] });
+            continue;
+        }
+
+        if reason.starts_with("heading change") {
+            reasons.push(BoundaryReason::HeadingChange {
+                from: from_heading.join(" > "),
+                to: to_heading.join(" > "),
+            });
+            continue;
+        }
+
+        if reason.starts_with("topic shift") {
+            reasons.push(BoundaryReason::TopicShift {
+                similarity_drop: signal.topic_shift_penalty,
+            });
+            continue;
+        }
+
+        if reason.starts_with("relation continuity") {
+            reasons.push(BoundaryReason::PropositionComplete);
+            continue;
+        }
+
+        if reason.starts_with("budget pressure") || reason.starts_with("hard budget ceiling") {
+            let tokens = reason
+                .split(|c: char| !c.is_ascii_digit())
+                .find_map(|part| part.parse::<usize>().ok())
+                .unwrap_or(0);
+            reasons.push(BoundaryReason::BudgetCeiling { tokens });
+            continue;
+        }
+    }
+
+    if reasons.is_empty() {
+        reasons.push(BoundaryReason::TopicShift {
+            similarity_drop: signal.topic_shift_penalty,
+        });
+    }
+
+    reasons
+}
+
 /// Build cross-chunk entity tracking: entity name → list of chunk indices.
 /// Only includes entities that appear in 2+ chunks (truly "shared").
 fn build_shared_entities(
@@ -317,7 +400,7 @@ fn build_shared_entities(
         std::collections::HashMap::new();
 
     for (i, chunk) in chunks.iter().enumerate() {
-        for entity in &chunk.dominant_entities {
+        for entity in &chunk.all_entities {
             entity_chunks.entry(entity.clone()).or_default().push(i);
         }
     }
