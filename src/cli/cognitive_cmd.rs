@@ -128,8 +128,14 @@ pub struct CognitiveArgs {
     #[arg(long)]
     pub language: Option<String>,
 
-    /// Path to ONNX reranker model directory for ambiguous boundary refinement.
-    /// The directory must contain model.onnx and tokenizer.json.
+    /// Reranker for ambiguous boundary refinement.
+    /// Accepted values:
+    ///   nvidia          — NVIDIA NIM API (requires NVIDIA_API_KEY env var)
+    ///   cohere          — Cohere Rerank API (requires COHERE_API_KEY env var)
+    ///   cloudflare      — Cloudflare Workers AI (requires CLOUDFLARE_AUTH_TOKEN + CLOUDFLARE_ACCOUNT_ID)
+    ///   oauth           — OAuth-authenticated rerank endpoint (reuses .env.oauth credentials)
+    ///   onnx:<path>     — local ONNX model directory (must contain model.onnx + tokenizer.json)
+    ///   <path>          — alias for onnx:<path> (backwards compatible)
     #[arg(long)]
     pub reranker: Option<String>,
 
@@ -240,15 +246,8 @@ async fn run_pipeline<P: EmbeddingProvider>(
     args: &CognitiveArgs,
     global: &GlobalOpts,
 ) -> anyhow::Result<()> {
-    let mut result = if let Some(ref reranker_path) = args.reranker {
-        global.detail(&format!(
-            "[reranker] loading ONNX model from {reranker_path}"
-        ));
-        let reranker = cognigraph_chunker::embeddings::reranker::OnnxReranker::new(reranker_path)?;
-        global.detail(&format!(
-            "[reranker] model loaded: {}",
-            reranker.model_name()
-        ));
+    let mut result = if let Some(ref reranker_spec) = args.reranker {
+        let reranker = build_reranker(reranker_spec, global)?;
         if args.no_markdown {
             cognigraph_chunker::semantic::cognitive_chunk_plain_with_reranker(
                 text, provider, config, &reranker,
@@ -551,4 +550,76 @@ fn resolve_openai_key(flag: &Option<String>) -> anyhow::Result<String> {
         }
     }
     anyhow::bail!("OpenAI API key not found.")
+}
+
+/// Parse the `--reranker` flag and construct the appropriate provider.
+///
+/// Accepted formats:
+/// - `"nvidia"` → NVIDIA NIM (env: NVIDIA_API_KEY)
+/// - `"cohere"` → Cohere Rerank (env: COHERE_API_KEY)
+/// - `"onnx:<path>"` → local ONNX model directory
+/// - `"<path>"` → backwards-compatible alias for `onnx:<path>`
+fn build_reranker(
+    spec: &str,
+    global: &GlobalOpts,
+) -> anyhow::Result<cognigraph_chunker::embeddings::reranker::AnyReranker> {
+    use cognigraph_chunker::embeddings::reranker::AnyReranker;
+
+    match spec.to_lowercase().as_str() {
+        "nvidia" => {
+            load_env_file(".env.nvidia");
+            let reranker =
+                cognigraph_chunker::embeddings::reranker::NvidiaReranker::from_env()?;
+            global.detail(&format!("[reranker] NVIDIA NIM: {}", reranker.model_name()));
+            Ok(AnyReranker::Nvidia(reranker))
+        }
+        "cohere" => {
+            load_env_file(".env.cohere");
+            let reranker =
+                cognigraph_chunker::embeddings::reranker::CohereReranker::from_env()?;
+            global.detail(&format!("[reranker] Cohere: {}", reranker.model_name()));
+            Ok(AnyReranker::Cohere(reranker))
+        }
+        "cloudflare" => {
+            load_env_file(".env.cloudflare");
+            let reranker =
+                cognigraph_chunker::embeddings::reranker::CloudflareReranker::from_env()?;
+            global.detail(&format!("[reranker] Cloudflare: {}", reranker.model_name()));
+            Ok(AnyReranker::Cloudflare(reranker))
+        }
+        "oauth" => {
+            load_env_file(".env.oauth");
+            let reranker =
+                cognigraph_chunker::embeddings::reranker::OAuthReranker::from_env(false)?;
+            global.detail(&format!("[reranker] OAuth: {}", reranker.model_name()));
+            Ok(AnyReranker::OAuth(reranker))
+        }
+        other => {
+            let path = other.strip_prefix("onnx:").unwrap_or(other);
+            global.detail(&format!("[reranker] loading ONNX model from {path}"));
+            let reranker =
+                cognigraph_chunker::embeddings::reranker::OnnxReranker::new(path)?;
+            global.detail(&format!("[reranker] model loaded: {}", reranker.model_name()));
+            Ok(AnyReranker::Onnx(Box::new(reranker)))
+        }
+    }
+}
+
+/// Load a dotenv-style file, setting variables that aren't already in the environment.
+fn load_env_file(path: &str) {
+    if let Ok(content) = std::fs::read_to_string(path) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, val)) = line.split_once('=') {
+                let key = key.trim();
+                let val = val.trim();
+                if !val.is_empty() && std::env::var(key).is_err() {
+                    unsafe { std::env::set_var(key, val); }
+                }
+            }
+        }
+    }
 }

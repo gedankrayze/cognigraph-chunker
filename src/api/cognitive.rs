@@ -281,20 +281,56 @@ async fn run_cognitive<P: EmbeddingProvider>(
     provider: &P,
     config: &CognitiveConfig,
     no_markdown: bool,
-    reranker_path: &Option<String>,
+    reranker_spec: &Option<String>,
 ) -> anyhow::Result<CognitiveResult> {
-    if let Some(path) = reranker_path {
-        let reranker = crate::embeddings::reranker::OnnxReranker::new(path)?;
+    if let Some(spec) = reranker_spec {
+        let reranker = build_api_reranker(spec)?;
         if no_markdown {
-            crate::semantic::cognitive_chunk_plain_with_reranker(text, provider, config, &reranker)
-                .await
+            crate::semantic::cognitive_chunk_plain_with_reranker(
+                text, provider, config, &reranker,
+            )
+            .await
         } else {
-            crate::semantic::cognitive_chunk_with_reranker(text, provider, config, &reranker).await
+            crate::semantic::cognitive_chunk_with_reranker(text, provider, config, &reranker)
+                .await
         }
     } else if no_markdown {
         cognitive_chunk_plain(text, provider, config).await
     } else {
         cognitive_chunk(text, provider, config).await
+    }
+}
+
+/// Parse a reranker spec string and construct the appropriate provider.
+///
+/// Accepted: `"nvidia"`, `"cohere"`, `"onnx:<path>"`, or a bare path.
+fn build_api_reranker(
+    spec: &str,
+) -> anyhow::Result<crate::embeddings::reranker::AnyReranker> {
+    use crate::embeddings::reranker::AnyReranker;
+
+    match spec.to_lowercase().as_str() {
+        "nvidia" => {
+            let reranker = crate::embeddings::reranker::NvidiaReranker::from_env()?;
+            Ok(AnyReranker::Nvidia(reranker))
+        }
+        "cohere" => {
+            let reranker = crate::embeddings::reranker::CohereReranker::from_env()?;
+            Ok(AnyReranker::Cohere(reranker))
+        }
+        "cloudflare" => {
+            let reranker = crate::embeddings::reranker::CloudflareReranker::from_env()?;
+            Ok(AnyReranker::Cloudflare(reranker))
+        }
+        "oauth" => {
+            let reranker = crate::embeddings::reranker::OAuthReranker::from_env(false)?;
+            Ok(AnyReranker::OAuth(reranker))
+        }
+        other => {
+            let path = other.strip_prefix("onnx:").unwrap_or(other);
+            let reranker = crate::embeddings::reranker::OnnxReranker::new(path)?;
+            Ok(AnyReranker::Onnx(Box::new(reranker)))
+        }
     }
 }
 

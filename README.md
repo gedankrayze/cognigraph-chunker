@@ -14,7 +14,7 @@ Fast text chunking toolkit with fixed-size, delimiter-based, semantic, and cogni
 - **Markdown-aware** -- parses markdown AST to preserve tables, code blocks, headings, and lists as atomic units
 - **Optional LLM enrichment** -- relation triple extraction and chunk synopsis generation via OpenAI-compatible API (post-assembly, no LLM needed for core chunking)
 - **Graph export** -- output chunks as nodes with adjacency and shared-entity edges, ready for graph databases
-- **Ambiguous boundary refinement** -- optional ONNX cross-encoder reranker for precision improvement on uncertain boundaries
+- **Ambiguous boundary refinement** -- optional cross-encoder reranking for precision improvement on uncertain boundaries (NVIDIA NIM, Cohere, Cloudflare Workers AI, OAuth-authenticated endpoints, or local ONNX)
 - **Merge post-processing** -- combine small chunks into token-budget groups across all strategies
 - **Output formats** -- plain text, JSON, and JSONL
 
@@ -264,7 +264,7 @@ Split text using multi-signal boundary scoring that preserves entity chains, dis
 | `--sg-window` | | 11 | Savitzky-Golay smoothing window size (must be odd) |
 | `--poly-order` | | 3 | Savitzky-Golay polynomial order |
 | `--language` | | auto-detect | Language override (`en`, `de`, `fr`, `es`, `pt`, `it`, `nl`, `ru`, `zh`, `ja`, `ko`, `ar`, `tr`, `pl`) or `auto` |
-| `--reranker` | | none | Path to ONNX cross-encoder model directory for ambiguous boundary refinement |
+| `--reranker` | | none | Reranker for ambiguous boundary refinement: `nvidia`, `cohere`, `cloudflare`, `oauth`, `onnx:<path>`, or a bare path |
 | `--relations` | | off | Extract relation triples via LLM (requires OpenAI API key) |
 | `--synopsis` | | off | Generate LLM-based synopsis for each chunk (requires OpenAI API key) |
 | `--graph` | | off | Output as graph structure (nodes + edges) instead of flat chunks |
@@ -284,8 +284,23 @@ cognigraph-chunker cognitive -i doc.md -p openai -f json
 # Custom token budgets
 cognigraph-chunker cognitive -i doc.md --soft-budget 256 --hard-budget 512
 
-# With cross-encoder reranker for ambiguous boundaries
-cognigraph-chunker cognitive -i doc.md --reranker ./models/ms-marco-MiniLM-L-6-v2
+# With NVIDIA NIM reranker (reads .env.nvidia for credentials)
+cognigraph-chunker cognitive -i doc.md --reranker nvidia
+
+# With Cohere reranker (reads .env.cohere for credentials)
+cognigraph-chunker cognitive -i doc.md --reranker cohere
+
+# With Cloudflare Workers AI reranker (reads .env.cloudflare for credentials)
+cognigraph-chunker cognitive -i doc.md --reranker cloudflare
+
+# With OAuth-authenticated reranker (reads .env.oauth for credentials)
+cognigraph-chunker cognitive -i doc.md --reranker oauth
+
+# With local ONNX cross-encoder reranker
+cognigraph-chunker cognitive -i doc.md --reranker onnx:./models/ms-marco-MiniLM-L-6-v2
+
+# OpenAI embeddings + NVIDIA reranking (best quality/speed combo)
+cognigraph-chunker cognitive -i doc.md -p openai --reranker nvidia
 
 # Extract relation triples via LLM
 cognigraph-chunker cognitive -i doc.md --relations -f json
@@ -487,7 +502,7 @@ Cognition-aware chunking with multi-signal boundary scoring.
 
 - `soft_budget` / `hard_budget`: token budget controls (assembly prefers soft, never exceeds hard)
 - `language`: override auto-detection (`"en"`, `"de"`, `"fr"`, `"es"`, `"pt"`, `"it"`, `"nl"`, `"ru"`, `"zh"`, `"ja"`, `"ko"`, `"ar"`, `"tr"`, `"pl"`, `"auto"` for explicit auto-detect)
-- `reranker_path`: path to ONNX cross-encoder model for ambiguous boundary refinement
+- `reranker_path`: reranker provider for ambiguous boundary refinement — `"nvidia"`, `"cohere"`, `"cloudflare"`, `"oauth"`, `"onnx:<path>"`, or a bare path to an ONNX model directory
 - `relations`: extract relation triples via LLM (requires OpenAI API key)
 - `graph`: return graph-shaped output (nodes + edges) instead of flat chunks
 - All embedding provider fields work the same as `/api/v1/semantic`
@@ -725,6 +740,15 @@ print(filtered.indices, filtered.values)
 | `OAUTH_BASE_URL` | Base URL for the OpenAI-compatible API (used by `oauth` provider) |
 | `OAUTH_MODEL` | Model name (used by `oauth` provider) |
 | `COGNIGRAPH_LLM_MODEL` | LLM model for relation extraction and synopsis (default: `gpt-4.1-mini`) |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key (used by `nvidia` reranker) |
+| `NVIDIA_RERANK_MODEL` | NVIDIA reranker model (default: `nv-rerank-qa-mistral-4b:1`) |
+| `NVIDIA_RERANK_BASE_URL` | NVIDIA reranker base URL (default: `https://ai.api.nvidia.com/v1`) |
+| `COHERE_API_KEY` | Cohere API key (used by `cohere` reranker) |
+| `COHERE_RERANK_MODEL` | Cohere reranker model (default: `rerank-v3.5`) |
+| `COHERE_RERANK_BASE_URL` | Cohere reranker base URL (default: `https://api.cohere.com/v2`) |
+| `CLOUDFLARE_RERANK_MODEL` | Cloudflare reranker model (default: `@cf/baai/bge-reranker-base`) |
+| `OAUTH_RERANK_PATH` | Rerank endpoint path appended to `OAUTH_BASE_URL` (default: `/rerank`) |
+| `OAUTH_RERANK_MODEL` | Model name for OAuth reranker |
 
 ### `.env.openai` File
 
@@ -738,19 +762,20 @@ Key resolution order: `--api-key` flag / `api_key` field > `OPENAI_API_KEY` env 
 
 ### `.env.cloudflare` File
 
-The Cloudflare provider reads credentials from a `.env.cloudflare` file in the working directory:
+The Cloudflare provider reads credentials from a `.env.cloudflare` file in the working directory. These credentials are shared between the embedding provider and the `cloudflare` reranker:
 
 ```
 CLOUDFLARE_AUTH_TOKEN=your-token
 CLOUDFLARE_ACCOUNT_ID=your-account-id
 CLOUDFLARE_AI_GATEWAY=your-gateway-name
+CLOUDFLARE_RERANK_MODEL=@cf/baai/bge-reranker-base
 ```
 
 Key resolution order: CLI flags / request fields > environment variables > `.env.cloudflare` file.
 
 ### `.env.oauth` File
 
-The OAuth provider reads credentials from a `.env.oauth` file in the working directory:
+The OAuth provider reads credentials from a `.env.oauth` file in the working directory. These credentials are shared between the embedding provider and the `oauth` reranker:
 
 ```
 OAUTH_TOKEN_URL=https://auth.example.com/api/oauth/token
@@ -759,9 +784,40 @@ OAUTH_CLIENT_SECRET=your-client-secret
 OAUTH_SCOPE=embeddings
 OAUTH_BASE_URL=https://api.example.com/llm-api
 OAUTH_MODEL=text-embedding-3-small
+OAUTH_RERANK_PATH=/rerank
+OAUTH_RERANK_MODEL=rerank-model-name
 ```
 
+The `OAUTH_RERANK_PATH` is appended to `OAUTH_BASE_URL` to form the rerank endpoint (default: `/rerank`). This accommodates corporate API gateways that expose reranking at non-standard paths.
+
 Key resolution order: CLI flags / request fields > environment variables > `.env.oauth` file.
+
+### `.env.nvidia` File
+
+The NVIDIA reranker reads credentials from a `.env.nvidia` file in the working directory:
+
+```
+NVIDIA_API_KEY=nvapi-...
+NVIDIA_RERANK_MODEL=nvidia/llama-nemotron-rerank-1b-v2
+NVIDIA_RERANK_BASE_URL=https://ai.api.nvidia.com/v1
+```
+
+Available models include `nvidia/llama-nemotron-rerank-1b-v2` (recommended — fast, high quality), `nv-rerank-qa-mistral-4b:1`, and `nvidia/rerank-qa-mistral-4b`. The endpoint path is derived automatically from the model name.
+
+Key resolution order: environment variables > `.env.nvidia` file.
+
+### `.env.cohere` File
+
+The Cohere reranker reads credentials from a `.env.cohere` file in the working directory:
+
+```
+COHERE_API_KEY=your-key
+COHERE_RERANK_MODEL=rerank-v3.5
+```
+
+Available models: `rerank-v3.5`, `rerank-english-v3.0`, `rerank-multilingual-v3.0`.
+
+Key resolution order: environment variables > `.env.cohere` file.
 
 ### Embedding Provider Setup
 
@@ -840,6 +896,11 @@ docker run -p 3000:3000 \
 | `OAUTH_MODEL` | Model name for the `oauth` embedding provider |
 | `ORT_DYLIB_PATH` | Custom path to ONNX Runtime shared library (only used when the runtime is not on default system paths). Not bundled by this crate. |
 | `COGNIGRAPH_LLM_MODEL` | LLM model for `--relations` and `--synopsis` (default: `gpt-4.1-mini`) |
+| `NVIDIA_API_KEY` | NVIDIA NIM API key for the `nvidia` reranker |
+| `NVIDIA_RERANK_MODEL` | NVIDIA reranker model (default: `nv-rerank-qa-mistral-4b:1`) |
+| `NVIDIA_RERANK_BASE_URL` | NVIDIA reranker base URL |
+| `COHERE_API_KEY` | Cohere API key for the `cohere` reranker |
+| `COHERE_RERANK_MODEL` | Cohere reranker model (default: `rerank-v3.5`) |
 
 ### Deploy on Railway / Render / Fly.io
 
@@ -854,7 +915,7 @@ cognigraph-chunker/
     main.rs             # CLI entry point
     core/               # Core algorithms (chunk, split, merge, signal processing)
     embeddings/         # Embedding providers (OpenAI, Ollama, ONNX, Cloudflare, OAuth)
-      reranker.rs       # Cross-encoder reranker for ambiguous boundary refinement
+      reranker.rs       # Cross-encoder rerankers (NVIDIA NIM, Cohere, Cloudflare, OAuth, ONNX) for boundary refinement
     semantic/           # Semantic and cognitive chunking pipelines
       enrichment/       # Cognitive enrichment (entities, discourse, heading context, language)
       cognitive_*.rs    # Cognitive scoring, assembly, and reranking
