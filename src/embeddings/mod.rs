@@ -159,7 +159,7 @@ const fn path_list_separator() -> &'static str {
 }
 
 #[allow(clippy::needless_return)]
-const fn onnx_runtime_library_names() -> &'static [&'static str; 1] {
+const fn onnx_runtime_library_names() -> &'static [&'static str] {
     #[cfg(target_os = "macos")]
     {
         return &["libonnxruntime.dylib"];
