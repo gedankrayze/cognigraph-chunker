@@ -286,13 +286,10 @@ async fn run_cognitive<P: EmbeddingProvider>(
     if let Some(spec) = reranker_spec {
         let reranker = build_api_reranker(spec)?;
         if no_markdown {
-            crate::semantic::cognitive_chunk_plain_with_reranker(
-                text, provider, config, &reranker,
-            )
-            .await
-        } else {
-            crate::semantic::cognitive_chunk_with_reranker(text, provider, config, &reranker)
+            crate::semantic::cognitive_chunk_plain_with_reranker(text, provider, config, &reranker)
                 .await
+        } else {
+            crate::semantic::cognitive_chunk_with_reranker(text, provider, config, &reranker).await
         }
     } else if no_markdown {
         cognitive_chunk_plain(text, provider, config).await
@@ -304,9 +301,7 @@ async fn run_cognitive<P: EmbeddingProvider>(
 /// Parse a reranker spec string and construct the appropriate provider.
 ///
 /// Accepted: `"nvidia"`, `"cohere"`, `"onnx:<path>"`, or a bare path.
-fn build_api_reranker(
-    spec: &str,
-) -> anyhow::Result<crate::embeddings::reranker::AnyReranker> {
+fn build_api_reranker(spec: &str) -> anyhow::Result<crate::embeddings::reranker::AnyReranker> {
     use crate::embeddings::reranker::AnyReranker;
 
     match spec.to_lowercase().as_str() {

@@ -169,11 +169,7 @@ pub struct NvidiaReranker {
 }
 
 impl NvidiaReranker {
-    pub fn new(
-        api_key: String,
-        base_url: Option<String>,
-        model: Option<String>,
-    ) -> Result<Self> {
+    pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> Result<Self> {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
             .timeout(std::time::Duration::from_secs(120))
@@ -189,8 +185,7 @@ impl NvidiaReranker {
             client,
             api_key,
             base_url: base,
-            model: model
-                .unwrap_or_else(|| "nv-rerank-qa-mistral-4b:1".to_string()),
+            model: model.unwrap_or_else(|| "nv-rerank-qa-mistral-4b:1".to_string()),
         })
     }
 
@@ -261,7 +256,10 @@ impl RerankerProvider for NvidiaReranker {
         let request = NvidiaRerankRequest {
             model: &self.model,
             query: NvidiaQuery { text: query },
-            passages: documents.iter().map(|&d| NvidiaPassage { text: d }).collect(),
+            passages: documents
+                .iter()
+                .map(|&d| NvidiaPassage { text: d })
+                .collect(),
         };
 
         let response = self
@@ -323,11 +321,7 @@ pub struct CohereReranker {
 }
 
 impl CohereReranker {
-    pub fn new(
-        api_key: String,
-        base_url: Option<String>,
-        model: Option<String>,
-    ) -> Result<Self> {
+    pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> Result<Self> {
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(30))
             .timeout(std::time::Duration::from_secs(120))
@@ -546,7 +540,10 @@ impl RerankerProvider for CloudflareReranker {
 
         let request = CfRerankRequest {
             query,
-            contexts: documents.iter().map(|&d| CfRerankContext { text: d }).collect(),
+            contexts: documents
+                .iter()
+                .map(|&d| CfRerankContext { text: d })
+                .collect(),
         };
 
         let mut req_builder = self
@@ -634,6 +631,7 @@ struct OAuthCachedToken {
 }
 
 impl OAuthReranker {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         token_url: String,
         client_id: String,
@@ -670,9 +668,8 @@ impl OAuthReranker {
     /// - `OAUTH_RERANK_PATH` (optional, default: `/rerank`)
     /// - `OAUTH_RERANK_MODEL` (optional)
     pub fn from_env(danger_accept_invalid_certs: bool) -> Result<Self> {
-        let creds = super::oauth::resolve_oauth_credentials(
-            &None, &None, &None, &None, &None, &None,
-        )?;
+        let creds =
+            super::oauth::resolve_oauth_credentials(&None, &None, &None, &None, &None, &None)?;
         let rerank_path = std::env::var("OAUTH_RERANK_PATH").ok();
         let model = std::env::var("OAUTH_RERANK_MODEL").ok();
         Self::new(

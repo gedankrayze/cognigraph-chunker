@@ -568,15 +568,13 @@ fn build_reranker(
     match spec.to_lowercase().as_str() {
         "nvidia" => {
             load_env_file(".env.nvidia");
-            let reranker =
-                cognigraph_chunker::embeddings::reranker::NvidiaReranker::from_env()?;
+            let reranker = cognigraph_chunker::embeddings::reranker::NvidiaReranker::from_env()?;
             global.detail(&format!("[reranker] NVIDIA NIM: {}", reranker.model_name()));
             Ok(AnyReranker::Nvidia(reranker))
         }
         "cohere" => {
             load_env_file(".env.cohere");
-            let reranker =
-                cognigraph_chunker::embeddings::reranker::CohereReranker::from_env()?;
+            let reranker = cognigraph_chunker::embeddings::reranker::CohereReranker::from_env()?;
             global.detail(&format!("[reranker] Cohere: {}", reranker.model_name()));
             Ok(AnyReranker::Cohere(reranker))
         }
@@ -597,9 +595,11 @@ fn build_reranker(
         other => {
             let path = other.strip_prefix("onnx:").unwrap_or(other);
             global.detail(&format!("[reranker] loading ONNX model from {path}"));
-            let reranker =
-                cognigraph_chunker::embeddings::reranker::OnnxReranker::new(path)?;
-            global.detail(&format!("[reranker] model loaded: {}", reranker.model_name()));
+            let reranker = cognigraph_chunker::embeddings::reranker::OnnxReranker::new(path)?;
+            global.detail(&format!(
+                "[reranker] model loaded: {}",
+                reranker.model_name()
+            ));
             Ok(AnyReranker::Onnx(Box::new(reranker)))
         }
     }
@@ -617,7 +617,9 @@ fn load_env_file(path: &str) {
                 let key = key.trim();
                 let val = val.trim();
                 if !val.is_empty() && std::env::var(key).is_err() {
-                    unsafe { std::env::set_var(key, val); }
+                    unsafe {
+                        std::env::set_var(key, val);
+                    }
                 }
             }
         }
