@@ -16,7 +16,9 @@ jobs:
     if: >
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.actor.login == 'renovate[bot]'
+      github.event.workflow_run.head_branch != 'main' &&
+      (github.event.workflow_run.actor.login == 'renovate[bot]' ||
+       github.event.workflow_run.actor.login == 'dependabot[bot]')
     steps:
       - name: Get PR number
         id: pr
