@@ -3,7 +3,7 @@ members = [".", "packages/python"]
 
 [package]
 name = "cognigraph-chunker"
-version = "1.1.0"
+version = "2.0.0"
 edition = "2024"
 license = "MIT"
 
@@ -45,6 +45,12 @@ ndarray = "0.17"
 
 # Unicode sentence segmentation
 unicode-segmentation = "1.12"
+
+# Language detection
+whatlang = "0.16"
+
+# Unicode script detection (entity heuristics for CJK, etc.)
+unicode-script = "0.5"
 
 # Markdown AST parsing
 pulldown-cmark = "0.13"

@@ -1,4 +1,5 @@
 mod chunker;
+mod cognitive;
 mod error;
 mod merge;
 mod semantic;
@@ -45,6 +46,12 @@ fn cognigraph_chunker(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<semantic::PySemanticConfig>()?;
     m.add_class::<semantic::PySemanticResult>()?;
     m.add_function(wrap_pyfunction!(semantic::py_semantic_chunk, m)?)?;
+
+    // Cognitive chunking
+    m.add_class::<cognitive::PyCognitiveConfig>()?;
+    m.add_class::<cognitive::PyCognitiveResult>()?;
+    m.add_class::<cognitive::PyCognitiveChunk>()?;
+    m.add_function(wrap_pyfunction!(cognitive::py_cognitive_chunk, m)?)?;
 
     Ok(())
 }

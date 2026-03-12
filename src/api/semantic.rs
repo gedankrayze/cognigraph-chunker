@@ -113,7 +113,7 @@ fn is_private_ip(ip: IpAddr) -> bool {
 /// Validate that a base_url does not point to private/loopback addresses.
 ///
 /// Checks both the literal host and DNS-resolved addresses to prevent rebinding attacks.
-fn validate_base_url(raw: &str, allow_private: bool) -> anyhow::Result<()> {
+pub fn validate_base_url(raw: &str, allow_private: bool) -> anyhow::Result<()> {
     if allow_private {
         return Ok(());
     }
