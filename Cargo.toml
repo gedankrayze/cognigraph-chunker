@@ -47,7 +47,7 @@ ndarray = "0.17"
 unicode-segmentation = "1.12"
 
 # Language detection
-whatlang = "0.16"
+whatlang = "0.18"
 
 # Unicode script detection (entity heuristics for CJK, etc.)
 unicode-script = "0.5"
