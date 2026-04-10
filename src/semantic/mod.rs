@@ -21,6 +21,9 @@ pub mod intent_types;
 pub mod proposition_heal;
 pub mod quality_metrics;
 pub mod sentence;
+pub mod sir;
+pub mod topo_chunk;
+pub mod topo_types;
 
 use anyhow::{Result, bail};
 

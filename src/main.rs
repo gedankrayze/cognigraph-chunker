@@ -107,6 +107,16 @@ EXAMPLES:
 ")]
     Enriched(Box<cli::enriched_cmd::EnrichedArgs>),
 
+    /// Topology-aware chunking using SIR and dual LLM agents
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker topo -i doc.md
+  cognigraph-chunker topo -i doc.md -f json --emit-sir
+  cognigraph-chunker topo -i doc.md --soft-budget 256 --hard-budget 512
+  cognigraph-chunker topo -i doc.md --topo-model gpt-4.1-mini
+")]
+    Topo(Box<cli::topo_cmd::TopoArgs>),
+
     /// Start REST API server
     #[command(after_help = "\
 EXAMPLES:
@@ -141,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Cognitive(args) => cli::cognitive_cmd::run(args, &cli.global).await,
         Commands::Intent(args) => cli::intent_cmd::run(args, &cli.global).await,
         Commands::Enriched(args) => cli::enriched_cmd::run(args, &cli.global).await,
+        Commands::Topo(args) => cli::topo_cmd::run(args, &cli.global).await,
         Commands::Serve(args) => cli::serve_cmd::run(args).await,
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();

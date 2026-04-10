@@ -10,6 +10,7 @@ pub mod intent;
 pub mod merge;
 pub mod semantic;
 pub mod split;
+pub mod topo;
 pub mod types;
 
 use std::sync::Arc;
@@ -91,6 +92,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/evaluate",
             axum::routing::post(evaluate::evaluate_handler),
+        )
+        .route(
+            "/api/v1/topo",
+            axum::routing::post(topo::topo_handler),
         )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),

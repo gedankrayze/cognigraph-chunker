@@ -7,6 +7,7 @@ pub mod enrichment;
 pub mod intents;
 pub mod relations;
 pub mod synopsis;
+pub mod topo_agents;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};

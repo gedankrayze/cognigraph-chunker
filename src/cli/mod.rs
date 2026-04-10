@@ -9,3 +9,4 @@ pub mod merge_opts;
 pub mod semantic_cmd;
 pub mod serve_cmd;
 pub mod split_cmd;
+pub mod topo_cmd;
