@@ -36,21 +36,26 @@ pub struct QualityMetrics {
 /// Weights for the composite score (should sum to 1.0).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricWeights {
-    pub size_compliance: f64,
-    pub intrachunk_cohesion: f64,
-    pub contextual_coherence: f64,
-    pub block_integrity: f64,
-    pub reference_completeness: f64,
+    #[serde(alias = "size_compliance")]
+    pub sc: f64,
+    #[serde(alias = "intrachunk_cohesion")]
+    pub icc: f64,
+    #[serde(alias = "contextual_coherence")]
+    pub dcc: f64,
+    #[serde(alias = "block_integrity")]
+    pub bi: f64,
+    #[serde(alias = "reference_completeness")]
+    pub rc: f64,
 }
 
 impl Default for MetricWeights {
     fn default() -> Self {
         Self {
-            size_compliance: 0.20,
-            intrachunk_cohesion: 0.20,
-            contextual_coherence: 0.20,
-            block_integrity: 0.20,
-            reference_completeness: 0.20,
+            sc: 0.20,
+            icc: 0.20,
+            dcc: 0.20,
+            bi: 0.20,
+            rc: 0.20,
         }
     }
 }
@@ -105,22 +110,6 @@ pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
         return 0.0;
     }
     (dot / (norm_a * norm_b)).clamp(-1.0, 1.0)
-}
-
-/// Compute the element-wise mean of a slice of vectors.
-fn mean_vector(vecs: &[Vec<f64>]) -> Vec<f64> {
-    if vecs.is_empty() {
-        return vec![];
-    }
-    let dim = vecs[0].len();
-    let mut sum = vec![0.0f64; dim];
-    for v in vecs {
-        for (s, x) in sum.iter_mut().zip(v.iter()) {
-            *s += x;
-        }
-    }
-    let n = vecs.len() as f64;
-    sum.iter().map(|s| s / n).collect()
 }
 
 // ── SC: Size Compliance ───────────────────────────────────────────────────────
@@ -198,6 +187,10 @@ const ORPHAN_PREFIXES: &[&str] = &[
 ///
 /// `orphan_count / boundary_count` is subtracted from 1.0.
 /// A single-chunk document returns 1.0 (no cross-chunk boundaries).
+///
+/// **Note:** This is a simplified implementation that checks pronoun/demonstrative orphans only.
+/// A full implementation could also track entity orphans — entities introduced in the previous
+/// chunk that are referenced in the next — matching the cognitive mode's entity continuity signal.
 pub fn reference_completeness(chunks: &[ChunkForEval]) -> f64 {
     if chunks.len() <= 1 {
         return 1.0;
@@ -216,7 +209,10 @@ pub fn reference_completeness(chunks: &[ChunkForEval]) -> f64 {
 
 // ── ICC: Intrachunk Cohesion ──────────────────────────────────────────────────
 
-/// Mean cosine similarity of sentence embeddings to their chunk centroid, averaged across chunks.
+/// Mean cosine similarity of sentence embeddings to the chunk embedding, averaged across chunks.
+///
+/// For each chunk: sentences and the full chunk text are embedded together (chunk last),
+/// then we compute the mean cosine similarity of each sentence embedding to the chunk embedding.
 ///
 /// Chunks with fewer than 2 sentences are skipped (trivially cohesive).
 /// Returns 1.0 for empty input.
@@ -247,30 +243,21 @@ pub async fn intrachunk_cohesion<P: EmbeddingProvider>(
         texts_to_embed.push(&chunk.text);
 
         let all_embeddings = provider.embed(&texts_to_embed).await?;
-        let (sentence_embeddings, chunk_embedding) = all_embeddings.split_at(sentences.len());
+        let (sentence_embeddings, chunk_emb_slice) = all_embeddings.split_at(sentences.len());
 
-        // Compute chunk centroid (mean of sentence embeddings)
-        let centroid = mean_vector(sentence_embeddings);
-        if centroid.is_empty() {
+        let chunk_emb = &chunk_emb_slice[0];
+        if chunk_emb.is_empty() {
             continue;
         }
 
-        // Mean cosine similarity of sentences to centroid
+        // Mean cosine similarity of each sentence embedding to the chunk embedding
         let mean_sim = sentence_embeddings
-            .iter()
-            .map(|e| cosine_similarity(e, &centroid))
-            .sum::<f64>()
-            / sentences.len() as f64;
-
-        // Also factor in similarity of each sentence to the full chunk embedding
-        let chunk_emb = &chunk_embedding[0];
-        let mean_to_chunk = sentence_embeddings
             .iter()
             .map(|e| cosine_similarity(e, chunk_emb))
             .sum::<f64>()
             / sentences.len() as f64;
 
-        scores.push((mean_sim + mean_to_chunk) / 2.0);
+        scores.push(mean_sim);
     }
 
     if scores.is_empty() {
@@ -309,11 +296,11 @@ pub async fn contextual_coherence<P: EmbeddingProvider>(
 
 /// Weighted sum of all five metric scores.
 pub fn composite_score(metrics: &QualityMetrics, weights: &MetricWeights) -> f64 {
-    weights.size_compliance * metrics.size_compliance
-        + weights.intrachunk_cohesion * metrics.intrachunk_cohesion
-        + weights.contextual_coherence * metrics.contextual_coherence
-        + weights.block_integrity * metrics.block_integrity
-        + weights.reference_completeness * metrics.reference_completeness
+    weights.sc * metrics.size_compliance
+        + weights.icc * metrics.intrachunk_cohesion
+        + weights.dcc * metrics.contextual_coherence
+        + weights.bi * metrics.block_integrity
+        + weights.rc * metrics.reference_completeness
 }
 
 // ── Main evaluation function ──────────────────────────────────────────────────
