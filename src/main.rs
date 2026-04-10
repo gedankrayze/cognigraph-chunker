@@ -86,6 +86,16 @@ EXAMPLES:
 ")]
     Cognitive(Box<cli::cognitive_cmd::CognitiveArgs>),
 
+    /// Intent-driven chunking using LLM-predicted queries and DP alignment
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker intent -i doc.md -p openai
+  cognigraph-chunker intent -i doc.md -p openai -f json
+  cognigraph-chunker intent -i doc.md --max-intents 10 --soft-budget 256
+  cognigraph-chunker intent -i doc.md --intent-model gpt-4.1-mini
+")]
+    Intent(Box<cli::intent_cmd::IntentArgs>),
+
     /// Start REST API server
     #[command(after_help = "\
 EXAMPLES:
@@ -118,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Split(args) => cli::split_cmd::run(args, &cli.global),
         Commands::Semantic(args) => cli::semantic_cmd::run(args, &cli.global).await,
         Commands::Cognitive(args) => cli::cognitive_cmd::run(args, &cli.global).await,
+        Commands::Intent(args) => cli::intent_cmd::run(args, &cli.global).await,
         Commands::Serve(args) => cli::serve_cmd::run(args).await,
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();

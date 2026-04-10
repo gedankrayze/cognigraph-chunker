@@ -5,6 +5,7 @@ pub mod cognitive;
 pub mod errors;
 pub mod evaluate;
 pub mod health;
+pub mod intent;
 pub mod merge;
 pub mod semantic;
 pub mod split;
@@ -76,6 +77,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/cognitive",
             axum::routing::post(cognitive::cognitive_handler),
+        )
+        .route(
+            "/api/v1/intent",
+            axum::routing::post(intent::intent_handler),
         )
         .route("/api/v1/merge", axum::routing::post(merge::merge_handler))
         .route(
