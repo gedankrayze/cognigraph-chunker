@@ -122,6 +122,10 @@ async fn run_intent_pipeline<P: EmbeddingProvider>(
         );
     }
 
+    if block_embeddings.is_empty() {
+        bail!("No block embeddings returned");
+    }
+
     let dim = block_embeddings[0].len();
     if dim == 0 {
         bail!("Embedding dimension is 0");
@@ -167,10 +171,9 @@ async fn run_intent_pipeline<P: EmbeddingProvider>(
         let mut best_j = 0;
 
         // Try all chunk sizes ending at block i-1
-        let mut chunk_tokens_sum = 0;
         for size in 1..=i.min(max_blocks_per_chunk) {
             let j = i - size; // chunk spans blocks j..i
-            chunk_tokens_sum += block_tokens[i - size];
+            let chunk_tokens_sum: usize = block_tokens[j..i].iter().sum();
 
             // Skip if previous prefix is unreachable
             if dp_score[j] == f64::NEG_INFINITY {
@@ -237,6 +240,7 @@ async fn run_intent_pipeline<P: EmbeddingProvider>(
             .collect::<Vec<_>>()
             .join("");
         let offset_start = blocks[start].offset;
+        // Offsets are byte-based (from pulldown_cmark AST), matching split_blocks() convention.
         let offset_end = blocks[end - 1].offset + blocks[end - 1].text.len();
         let token_est = estimate_tokens(&chunk_text);
         let chunk_centroid = centroid(&block_embeddings[start..end]);
