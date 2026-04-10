@@ -317,7 +317,7 @@ fn recombine_by_keys(
 
     // Sort by adjacency (adjacent pairs first) then by index
     merge_pairs.sort_by_key(|&(_, a, b)| {
-        let distance = if b > a { b - a } else { a - b };
+        let distance = b.abs_diff(a);
         (distance, a)
     });
 

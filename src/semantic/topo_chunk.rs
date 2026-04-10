@@ -323,8 +323,8 @@ fn collect_splittable_texts(
     let mut parts: Vec<String> = Vec::new();
 
     for node in &sir.nodes {
-        if node.node_type == SirNodeType::Section {
-            if class_map.get(&node.id) == Some(&SectionClass::Splittable) {
+        if node.node_type == SirNodeType::Section
+            && class_map.get(&node.id) == Some(&SectionClass::Splittable) {
                 let (start, end) = node.block_range;
                 let text: String = blocks[start..end]
                     .iter()
@@ -333,7 +333,6 @@ fn collect_splittable_texts(
                     .join("\n");
                 parts.push(format!("--- Section {} (blocks {}..{}) ---\n{}", node.id, start, end, text));
             }
-        }
     }
 
     parts.join("\n\n")
