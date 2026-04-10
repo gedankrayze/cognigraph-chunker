@@ -64,7 +64,9 @@ impl Default for MetricWeights {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkForEval {
     pub text: String,
+    /// Byte offset of the chunk's start in the original source document.
     pub offset_start: usize,
+    /// Byte offset of the chunk's end in the original source document.
     pub offset_end: usize,
 }
 
@@ -243,6 +245,13 @@ pub async fn intrachunk_cohesion<P: EmbeddingProvider>(
         texts_to_embed.push(&chunk.text);
 
         let all_embeddings = provider.embed(&texts_to_embed).await?;
+        if all_embeddings.len() != texts_to_embed.len() {
+            anyhow::bail!(
+                "ICC: provider returned {} embeddings, expected {}",
+                all_embeddings.len(),
+                texts_to_embed.len()
+            );
+        }
         let (sentence_embeddings, chunk_emb_slice) = all_embeddings.split_at(sentences.len());
 
         let chunk_emb = &chunk_emb_slice[0];
@@ -282,6 +291,13 @@ pub async fn contextual_coherence<P: EmbeddingProvider>(
 
     let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
     let embeddings = provider.embed(&texts).await?;
+    if embeddings.len() != texts.len() {
+        anyhow::bail!(
+            "DCC: provider returned {} embeddings, expected {}",
+            embeddings.len(),
+            texts.len()
+        );
+    }
 
     let mut total = 0.0f64;
     let pairs = embeddings.len() - 1;

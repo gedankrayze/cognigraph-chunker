@@ -6,7 +6,6 @@ use axum::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
 
-use crate::embeddings::EmbeddingProvider;
 use crate::embeddings::cloudflare::{CloudflareProvider, resolve_cloudflare_credentials};
 use crate::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
 use crate::embeddings::ollama::OllamaProvider;
@@ -88,12 +87,12 @@ pub async fn evaluate_handler(
     let metrics = match req.provider {
         ProviderParam::Ollama => {
             let provider = OllamaProvider::new(req.base_url.clone(), req.model.clone())?;
-            run_evaluate(&req.text, &req.chunks, &provider, &config).await?
+            evaluate_chunks(&req.text, &req.chunks, &provider, &config).await?
         }
         ProviderParam::Openai => {
             let api_key = resolve_openai_key(&req.api_key)?;
             let provider = OpenAiProvider::new(api_key, req.base_url.clone(), req.model.clone())?;
-            run_evaluate(&req.text, &req.chunks, &provider, &config).await?
+            evaluate_chunks(&req.text, &req.chunks, &provider, &config).await?
         }
         ProviderParam::Onnx => {
             let model_path = req
@@ -101,7 +100,7 @@ pub async fn evaluate_handler(
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("model_path is required for onnx provider"))?;
             let provider = OnnxProvider::new(model_path)?;
-            run_evaluate(&req.text, &req.chunks, &provider, &config).await?
+            evaluate_chunks(&req.text, &req.chunks, &provider, &config).await?
         }
         ProviderParam::Cloudflare => {
             let (token, account_id, gateway) = resolve_cloudflare_credentials(
@@ -111,7 +110,7 @@ pub async fn evaluate_handler(
             )?;
             let provider = CloudflareProvider::new(token, account_id, req.model.clone(), gateway)?;
             provider.verify_token().await?;
-            run_evaluate(&req.text, &req.chunks, &provider, &config).await?
+            evaluate_chunks(&req.text, &req.chunks, &provider, &config).await?
         }
         ProviderParam::Oauth => {
             let creds = resolve_oauth_credentials(
@@ -132,7 +131,7 @@ pub async fn evaluate_handler(
                 req.danger_accept_invalid_certs,
             )?;
             provider.verify_credentials().await?;
-            run_evaluate(&req.text, &req.chunks, &provider, &config).await?
+            evaluate_chunks(&req.text, &req.chunks, &provider, &config).await?
         }
     };
 
@@ -140,15 +139,6 @@ pub async fn evaluate_handler(
         metrics,
         chunk_count,
     }))
-}
-
-async fn run_evaluate<P: EmbeddingProvider>(
-    text: &str,
-    chunks: &[ChunkForEval],
-    provider: &P,
-    config: &MetricConfig,
-) -> anyhow::Result<QualityMetrics> {
-    evaluate_chunks(text, chunks, provider, config).await
 }
 
 /// Resolve OpenAI API key from request field, env var, or .env.openai file.
