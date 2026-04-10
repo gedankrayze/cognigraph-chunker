@@ -15,6 +15,7 @@ pub mod enrichment;
 pub mod evaluation;
 pub mod graph_export;
 pub mod proposition_heal;
+pub mod quality_metrics;
 pub mod sentence;
 
 use anyhow::{Result, bail};

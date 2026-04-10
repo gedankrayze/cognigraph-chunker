@@ -3,6 +3,7 @@
 pub mod chunk;
 pub mod cognitive;
 pub mod errors;
+pub mod evaluate;
 pub mod health;
 pub mod merge;
 pub mod semantic;
@@ -77,6 +78,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(cognitive::cognitive_handler),
         )
         .route("/api/v1/merge", axum::routing::post(merge::merge_handler))
+        .route(
+            "/api/v1/evaluate",
+            axum::routing::post(evaluate::evaluate_handler),
+        )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             auth_middleware,
