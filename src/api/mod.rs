@@ -1,5 +1,6 @@
 //! REST API module — Axum router setup and shared state.
 
+pub mod adaptive;
 pub mod chunk;
 pub mod cognitive;
 pub mod enriched;
@@ -96,6 +97,10 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/v1/topo",
             axum::routing::post(topo::topo_handler),
+        )
+        .route(
+            "/api/v1/adaptive",
+            axum::routing::post(adaptive::adaptive_handler),
         )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),

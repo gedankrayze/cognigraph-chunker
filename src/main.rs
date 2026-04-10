@@ -117,6 +117,16 @@ EXAMPLES:
 ")]
     Topo(Box<cli::topo_cmd::TopoArgs>),
 
+    /// Adaptive chunking: evaluates multiple methods and picks the best
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker adaptive -i doc.md
+  cognigraph-chunker adaptive -i doc.md -p openai --report
+  cognigraph-chunker adaptive -i doc.md --candidates semantic,cognitive,intent
+  cognigraph-chunker adaptive -i doc.md --force-candidates --metric-weights sc=0.3,icc=0.2
+")]
+    Adaptive(Box<cli::adaptive_cmd::AdaptiveArgs>),
+
     /// Start REST API server
     #[command(after_help = "\
 EXAMPLES:
@@ -152,6 +162,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Intent(args) => cli::intent_cmd::run(args, &cli.global).await,
         Commands::Enriched(args) => cli::enriched_cmd::run(args, &cli.global).await,
         Commands::Topo(args) => cli::topo_cmd::run(args, &cli.global).await,
+        Commands::Adaptive(args) => cli::adaptive_cmd::run(args, &cli.global).await,
         Commands::Serve(args) => cli::serve_cmd::run(args).await,
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();

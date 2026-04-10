@@ -5,6 +5,8 @@
 //! Tables, code blocks, lists, and block quotes are kept as atomic units.
 //! Paragraphs are sentence-split for fine-grained boundary detection.
 
+pub mod adaptive_chunk;
+pub mod adaptive_types;
 pub mod blocks;
 pub mod cognitive_assemble;
 pub mod cognitive_rerank;

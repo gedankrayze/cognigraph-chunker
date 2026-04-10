@@ -1,5 +1,6 @@
 //! CLI subcommands.
 
+pub mod adaptive_cmd;
 pub mod chunk_cmd;
 pub mod cognitive_cmd;
 pub mod enriched_cmd;
