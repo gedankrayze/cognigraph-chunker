@@ -2,6 +2,7 @@
 
 pub mod chunk;
 pub mod cognitive;
+pub mod enriched;
 pub mod errors;
 pub mod evaluate;
 pub mod health;
@@ -83,6 +84,10 @@ pub fn router(state: AppState) -> Router {
             axum::routing::post(intent::intent_handler),
         )
         .route("/api/v1/merge", axum::routing::post(merge::merge_handler))
+        .route(
+            "/api/v1/enriched",
+            axum::routing::post(enriched::enriched_handler),
+        )
         .route(
             "/api/v1/evaluate",
             axum::routing::post(evaluate::evaluate_handler),

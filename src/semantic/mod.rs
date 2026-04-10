@@ -11,6 +11,8 @@ pub mod cognitive_rerank;
 pub mod cognitive_score;
 pub mod cognitive_types;
 pub mod diagnostics;
+pub mod enriched_chunk;
+pub mod enriched_types;
 pub mod enrichment;
 pub mod evaluation;
 pub mod graph_export;
