@@ -394,6 +394,7 @@ dependencies = [
  "cognigraph-chunker",
  "numpy",
  "pyo3",
+ "serde_json",
  "tokio",
 ]
 
