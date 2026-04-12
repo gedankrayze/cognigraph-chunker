@@ -399,7 +399,7 @@ mod tests {
             vec![0.0, 0.0, 1.0],
         ];
         let c = centroid(&embeddings);
-        let expected = vec![1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0];
+        let expected = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0];
         for (a, b) in c.iter().zip(expected.iter()) {
             assert!((a - b).abs() < 1e-10);
         }

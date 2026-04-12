@@ -427,7 +427,7 @@ mod tests {
         let big = "word ".repeat(400);
         // 3 tokens: below lower bound of 256 ✗
         let small = "tiny text here";
-        let chunks = vec![chunk(&big, 0), chunk(&small, 2000)];
+        let chunks = vec![chunk(&big, 0), chunk(small, 2000)];
         let sc = size_compliance(&chunks, 512, 768);
         // big is in range [256, 768], small is not
         assert_eq!(sc, 0.5);

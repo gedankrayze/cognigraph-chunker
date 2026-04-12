@@ -517,7 +517,7 @@ Another paragraph here.
             .filter(|n| n.node_type == SirNodeType::ContentBlock)
             .collect();
         assert!(
-            content_blocks.len() >= 1,
+            !content_blocks.is_empty(),
             "Should have at least one content block"
         );
     }
