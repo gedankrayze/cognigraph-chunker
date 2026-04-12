@@ -10,10 +10,10 @@ Four new chunking methods join the existing modes (`chunk`, `split`, `semantic`,
 
 | Method | CLI Command | Key Innovation | LLM Required | Embedding Required |
 |--------|-------------|----------------|--------------|-------------------|
-| Intent-Driven | `cognigraph intent` | Boundaries optimized for predicted user queries | Yes (intent generation) | Yes (alignment scoring) |
-| Topology-Aware | `cognigraph topo` | Hierarchical SIR + dual-agent refinement | Yes (2 agent calls) | No (structure-based) |
-| Enriched | `cognigraph enriched` | Single-call 7-field metadata + key-based recombination | Yes (enrichment) | No (structure + LLM) |
-| Adaptive | `cognigraph adaptive` | Meta-router: 5 quality metrics select best method per document | Depends on candidates | Yes (for metrics) |
+| Intent-Driven | `cognigraph-chunker intent` | Boundaries optimized for predicted user queries | Yes (intent generation) | Yes (alignment scoring) |
+| Topology-Aware | `cognigraph-chunker topo` | Hierarchical SIR + dual-agent refinement | Yes (2 agent calls) | No (structure-based) |
+| Enriched | `cognigraph-chunker enriched` | Single-call 7-field metadata + key-based recombination | Yes (enrichment) | No (structure + LLM) |
+| Adaptive | `cognigraph-chunker adaptive` | Meta-router: 5 quality metrics select best method per document | Depends on candidates | Yes (for metrics) |
 
 ### Architecture: Flat Peer Methods
 
@@ -124,7 +124,7 @@ pub struct PredictedIntent {
 ### CLI Interface
 
 ```
-cognigraph intent <FILE> [OPTIONS]
+cognigraph-chunker intent <FILE> [OPTIONS]
 
 Required:
   <FILE>                    Input file (or - for stdin)
@@ -336,7 +336,7 @@ pub struct SectionClassification {
 ### CLI Interface
 
 ```
-cognigraph topo <FILE> [OPTIONS]
+cognigraph-chunker topo <FILE> [OPTIONS]
 
 Required:
   <FILE>                    Input file (or - for stdin)
@@ -518,7 +518,7 @@ pub struct MergeRecord {
 ### CLI Interface
 
 ```
-cognigraph enriched <FILE> [OPTIONS]
+cognigraph-chunker enriched <FILE> [OPTIONS]
 
 Required:
   <FILE>                        Input file (or - for stdin)
@@ -743,7 +743,7 @@ pub struct ScreeningDecision {
 ### CLI Interface
 
 ```
-cognigraph adaptive <FILE> [OPTIONS]
+cognigraph-chunker adaptive <FILE> [OPTIONS]
 
 Required:
   <FILE>                        Input file (or - for stdin)
