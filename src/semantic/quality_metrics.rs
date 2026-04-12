@@ -10,9 +10,9 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::embeddings::EmbeddingProvider;
 use super::blocks::{BlockKind, split_blocks};
 use super::sentence::split_sentences;
+use crate::embeddings::EmbeddingProvider;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,7 +102,11 @@ fn token_estimate(text: &str) -> usize {
 ///
 /// Returns 0.0 if either vector is zero.
 pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
-    debug_assert_eq!(a.len(), b.len(), "cosine_similarity: vectors must have the same length");
+    debug_assert_eq!(
+        a.len(),
+        b.len(),
+        "cosine_similarity: vectors must have the same length"
+    );
 
     let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
     let norm_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
@@ -176,13 +180,9 @@ pub fn block_integrity(original_text: &str, chunks: &[ChunkForEval]) -> f64 {
 
 /// Orphan pronouns and demonstratives that should not start a chunk.
 const ORPHAN_PREFIXES: &[&str] = &[
-    "it ", "it's ", "its ",
-    "this ", "these ", "those ", "that ",
-    "they ", "them ", "their ", "they're ",
-    "he ", "he's ", "him ", "his ",
-    "she ", "she's ", "her ",
-    "we ", "we've ", "us ", "our ",
-    "there ", "here ",
+    "it ", "it's ", "its ", "this ", "these ", "those ", "that ", "they ", "them ", "their ",
+    "they're ", "he ", "he's ", "him ", "his ", "she ", "she's ", "her ", "we ", "we've ", "us ",
+    "our ", "there ", "here ",
 ];
 
 /// Fraction of chunks that do NOT start with an orphan pronoun/demonstrative.
@@ -370,7 +370,10 @@ mod tests {
     fn test_cosine_identical_vectors() {
         let v = vec![1.0, 2.0, 3.0];
         let sim = cosine_similarity(&v, &v);
-        assert!((sim - 1.0).abs() < 1e-10, "Identical vectors should have similarity 1.0, got {sim}");
+        assert!(
+            (sim - 1.0).abs() < 1e-10,
+            "Identical vectors should have similarity 1.0, got {sim}"
+        );
     }
 
     #[test]
@@ -378,7 +381,10 @@ mod tests {
         let a = vec![1.0, 0.0, 0.0];
         let b = vec![0.0, 1.0, 0.0];
         let sim = cosine_similarity(&a, &b);
-        assert!(sim.abs() < 1e-10, "Orthogonal vectors should have similarity 0.0, got {sim}");
+        assert!(
+            sim.abs() < 1e-10,
+            "Orthogonal vectors should have similarity 0.0, got {sim}"
+        );
     }
 
     #[test]
@@ -479,7 +485,7 @@ mod tests {
     fn test_rc_partial_orphans() {
         let chunks = vec![
             chunk("The system processes data.", 0),
-            chunk("This is fine.", 30),      // "this " is an orphan
+            chunk("This is fine.", 30),        // "this " is an orphan
             chunk("Performance is good.", 50), // clean start
         ];
         let rc = reference_completeness(&chunks);

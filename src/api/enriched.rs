@@ -74,11 +74,7 @@ pub async fn enriched_handler(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<EnrichedRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let llm_config = LlmConfig::resolve(
-        &req.api_key,
-        &req.llm_base_url,
-        &req.enrichment_model,
-    )?;
+    let llm_config = LlmConfig::resolve(&req.api_key, &req.llm_base_url, &req.enrichment_model)?;
     let llm_client = CompletionClient::new(llm_config)?;
 
     let config = EnrichedConfig {

@@ -171,10 +171,7 @@ pub async fn enrich_chunk(
 }
 
 /// Lightweight re-enrichment after merging: produce updated title + summary.
-pub async fn re_enrich_merged(
-    client: &CompletionClient,
-    text: &str,
-) -> Result<(String, String)> {
+pub async fn re_enrich_merged(client: &CompletionClient, text: &str) -> Result<(String, String)> {
     let response = client
         .complete_json(RE_ENRICH_SYSTEM_PROMPT, text, re_enrich_schema())
         .await

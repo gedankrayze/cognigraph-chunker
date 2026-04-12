@@ -86,14 +86,17 @@ async fn run_intent_pipeline<P: EmbeddingProvider>(
 
     // Step 2: Generate intents via LLM
     let full_text: String = blocks.iter().map(|b| b.text).collect::<Vec<_>>().join(" ");
-    let intents = crate::llm::intents::generate_intents(llm_client, &full_text, config.max_intents)
-        .await?;
+    let intents =
+        crate::llm::intents::generate_intents(llm_client, &full_text, config.max_intents).await?;
 
     if intents.is_empty() {
         // If LLM returns no intents, produce a single chunk
         let text_joined: String = blocks.iter().map(|b| b.text).collect::<Vec<_>>().join("");
         let offset_start = blocks[0].offset;
-        let offset_end = blocks.last().map(|b| b.offset + b.text.len()).unwrap_or(offset_start);
+        let offset_end = blocks
+            .last()
+            .map(|b| b.offset + b.text.len())
+            .unwrap_or(offset_start);
         return Ok(IntentResult {
             chunks: vec![IntentChunk {
                 text: text_joined.clone(),
@@ -151,14 +154,12 @@ async fn run_intent_pipeline<P: EmbeddingProvider>(
     let n = blocks.len();
     let min_blocks = 1;
     // Max blocks per chunk: enough to fill hard_budget
-    let max_blocks_per_chunk = n.min(
-        if config.hard_budget > 0 {
-            // Estimate: average ~4 tokens per block minimum, so hard_budget/1 is upper bound
-            config.hard_budget.max(1)
-        } else {
-            n
-        },
-    );
+    let max_blocks_per_chunk = n.min(if config.hard_budget > 0 {
+        // Estimate: average ~4 tokens per block minimum, so hard_budget/1 is upper bound
+        config.hard_budget.max(1)
+    } else {
+        n
+    });
 
     // dp[i] represents the best partition score for blocks 0..i
     // dp[0] = 0.0 (empty prefix)
@@ -254,10 +255,7 @@ async fn run_intent_pipeline<P: EmbeddingProvider>(
                 .push(chunk_idx);
         }
 
-        let heading_path = heading_paths
-            .get(start)
-            .cloned()
-            .unwrap_or_default();
+        let heading_path = heading_paths.get(start).cloned().unwrap_or_default();
 
         chunks.push(IntentChunk {
             text: chunk_text,
@@ -395,7 +393,11 @@ mod tests {
 
     #[test]
     fn test_centroid_multiple() {
-        let embeddings = vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0], vec![0.0, 0.0, 1.0]];
+        let embeddings = vec![
+            vec![1.0, 0.0, 0.0],
+            vec![0.0, 1.0, 0.0],
+            vec![0.0, 0.0, 1.0],
+        ];
         let c = centroid(&embeddings);
         let expected = vec![1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0];
         for (a, b) in c.iter().zip(expected.iter()) {

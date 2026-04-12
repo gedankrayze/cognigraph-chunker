@@ -94,10 +94,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/evaluate",
             axum::routing::post(evaluate::evaluate_handler),
         )
-        .route(
-            "/api/v1/topo",
-            axum::routing::post(topo::topo_handler),
-        )
+        .route("/api/v1/topo", axum::routing::post(topo::topo_handler))
         .route(
             "/api/v1/adaptive",
             axum::routing::post(adaptive::adaptive_handler),

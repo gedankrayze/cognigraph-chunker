@@ -240,11 +240,7 @@ async fn run_pipeline<P: EmbeddingProvider>(
     Ok(())
 }
 
-fn write_intent_output(
-    result: &IntentResult,
-    chunks: &[(String, usize)],
-    format: OutputFormat,
-) {
+fn write_intent_output(result: &IntentResult, chunks: &[(String, usize)], format: OutputFormat) {
     match format {
         OutputFormat::Plain => {
             for (i, (text, _)) in chunks.iter().enumerate() {

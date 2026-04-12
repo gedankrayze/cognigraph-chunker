@@ -203,12 +203,28 @@ pub async fn run(args: &AdaptiveArgs, global: &GlobalOpts) -> anyhow::Result<()>
     match args.provider {
         ProviderType::Ollama => {
             let provider = OllamaProvider::new(args.base_url.clone(), args.model.clone())?;
-            run_adaptive(&text_str, &provider, llm_client.as_ref(), &config, args, global).await
+            run_adaptive(
+                &text_str,
+                &provider,
+                llm_client.as_ref(),
+                &config,
+                args,
+                global,
+            )
+            .await
         }
         ProviderType::Openai => {
             let api_key = resolve_openai_key(&args.api_key)?;
             let provider = OpenAiProvider::new(api_key, args.base_url.clone(), args.model.clone())?;
-            run_adaptive(&text_str, &provider, llm_client.as_ref(), &config, args, global).await
+            run_adaptive(
+                &text_str,
+                &provider,
+                llm_client.as_ref(),
+                &config,
+                args,
+                global,
+            )
+            .await
         }
         ProviderType::Onnx => {
             let model_path = args
@@ -216,7 +232,15 @@ pub async fn run(args: &AdaptiveArgs, global: &GlobalOpts) -> anyhow::Result<()>
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("--model-path is required for onnx provider."))?;
             let provider = OnnxProvider::new(model_path)?;
-            run_adaptive(&text_str, &provider, llm_client.as_ref(), &config, args, global).await
+            run_adaptive(
+                &text_str,
+                &provider,
+                llm_client.as_ref(),
+                &config,
+                args,
+                global,
+            )
+            .await
         }
         ProviderType::Cloudflare => {
             let (token, account_id, gateway) = resolve_cloudflare_credentials(
@@ -228,7 +252,15 @@ pub async fn run(args: &AdaptiveArgs, global: &GlobalOpts) -> anyhow::Result<()>
             global.detail("[cloudflare] verifying auth token...");
             provider.verify_token().await?;
             global.detail("[cloudflare] token verified");
-            run_adaptive(&text_str, &provider, llm_client.as_ref(), &config, args, global).await
+            run_adaptive(
+                &text_str,
+                &provider,
+                llm_client.as_ref(),
+                &config,
+                args,
+                global,
+            )
+            .await
         }
         ProviderType::Oauth => {
             let creds = resolve_oauth_credentials(
@@ -251,7 +283,15 @@ pub async fn run(args: &AdaptiveArgs, global: &GlobalOpts) -> anyhow::Result<()>
             global.detail("[oauth] acquiring token...");
             provider.verify_credentials().await?;
             global.detail("[oauth] token acquired");
-            run_adaptive(&text_str, &provider, llm_client.as_ref(), &config, args, global).await
+            run_adaptive(
+                &text_str,
+                &provider,
+                llm_client.as_ref(),
+                &config,
+                args,
+                global,
+            )
+            .await
         }
     }
 }

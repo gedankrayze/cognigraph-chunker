@@ -99,11 +99,7 @@ pub async fn intent_handler(
     }
 
     // Resolve LLM config for intent generation
-    let llm_config = LlmConfig::resolve(
-        &req.api_key,
-        &req.llm_base_url,
-        &req.intent_model,
-    )?;
+    let llm_config = LlmConfig::resolve(&req.api_key, &req.llm_base_url, &req.intent_model)?;
     let llm_client = CompletionClient::new(llm_config)?;
 
     let config = IntentConfig {

@@ -8,7 +8,9 @@ use serde::Serialize;
 
 use cognigraph_chunker::llm::{CompletionClient, LlmConfig};
 use cognigraph_chunker::output::OutputFormat;
-use cognigraph_chunker::semantic::enriched_chunk::{EnrichedConfig, enriched_chunk, enriched_chunk_plain};
+use cognigraph_chunker::semantic::enriched_chunk::{
+    EnrichedConfig, enriched_chunk, enriched_chunk_plain,
+};
 use cognigraph_chunker::semantic::enriched_types::{EnrichedResult, TypedEntity};
 
 use super::global_opts::{self, GlobalOpts};
@@ -69,11 +71,7 @@ pub async fn run(args: &EnrichedArgs, global: &GlobalOpts) -> anyhow::Result<()>
     ));
 
     // Resolve LLM config
-    let llm_config = LlmConfig::resolve(
-        &args.api_key,
-        &args.llm_base_url,
-        &args.enrichment_model,
-    )?;
+    let llm_config = LlmConfig::resolve(&args.api_key, &args.llm_base_url, &args.enrichment_model)?;
     let llm_client = CompletionClient::new(llm_config)?;
 
     let config = EnrichedConfig {

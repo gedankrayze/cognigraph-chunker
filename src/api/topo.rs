@@ -69,11 +69,7 @@ pub async fn topo_handler(
     Json(req): Json<TopoRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     // Resolve LLM config
-    let llm_config = LlmConfig::resolve(
-        &req.api_key,
-        &req.llm_base_url,
-        &req.topo_model,
-    )?;
+    let llm_config = LlmConfig::resolve(&req.api_key, &req.llm_base_url, &req.topo_model)?;
     let llm_client = CompletionClient::new(llm_config)?;
 
     let config = TopoConfig {

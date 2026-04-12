@@ -104,10 +104,7 @@ pub struct InspectorResponse {
 }
 
 /// Call the Inspector agent to classify SIR sections.
-pub async fn inspect_sir(
-    client: &CompletionClient,
-    sir_json: &str,
-) -> Result<InspectorResponse> {
+pub async fn inspect_sir(client: &CompletionClient, sir_json: &str) -> Result<InspectorResponse> {
     let user_prompt = format!(
         "Analyze this document SIR and classify each section:\n\n{}",
         sir_json
@@ -117,9 +114,8 @@ pub async fn inspect_sir(
         .complete_json(INSPECTOR_SYSTEM, &user_prompt, inspector_schema())
         .await?;
 
-    let parsed: InspectorResponse = serde_json::from_str(&response).map_err(|e| {
-        anyhow::anyhow!("Failed to parse Inspector response: {e}\nRaw: {response}")
-    })?;
+    let parsed: InspectorResponse = serde_json::from_str(&response)
+        .map_err(|e| anyhow::anyhow!("Failed to parse Inspector response: {e}\nRaw: {response}"))?;
 
     Ok(parsed)
 }
@@ -206,9 +202,8 @@ pub async fn refine_partition(
         .complete_json(REFINER_SYSTEM, &user_prompt, refiner_schema())
         .await?;
 
-    let parsed: RefinerResponse = serde_json::from_str(&response).map_err(|e| {
-        anyhow::anyhow!("Failed to parse Refiner response: {e}\nRaw: {response}")
-    })?;
+    let parsed: RefinerResponse = serde_json::from_str(&response)
+        .map_err(|e| anyhow::anyhow!("Failed to parse Refiner response: {e}\nRaw: {response}"))?;
 
     Ok(parsed)
 }

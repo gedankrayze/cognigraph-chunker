@@ -8,9 +8,7 @@ use anyhow::Result;
 use crate::embeddings::EmbeddingProvider;
 use crate::llm::CompletionClient;
 
-use super::adaptive_types::{
-    AdaptiveReport, AdaptiveResult, CandidateScore, ScreeningDecision,
-};
+use super::adaptive_types::{AdaptiveReport, AdaptiveResult, CandidateScore, ScreeningDecision};
 use super::blocks::{BlockKind, split_blocks};
 use super::cognitive_types::{CognitiveConfig, CognitiveWeights};
 use super::enriched_chunk::{EnrichedConfig, enriched_chunk};
@@ -143,7 +141,10 @@ pub fn pre_screen(
                             ),
                         )
                     } else {
-                        (true, "document has structure or sufficient length".to_string())
+                        (
+                            true,
+                            "document has structure or sufficient length".to_string(),
+                        )
                     }
                 }
                 other => (false, format!("unknown method: {other}")),
@@ -206,8 +207,12 @@ pub async fn adaptive_chunk<P: EmbeddingProvider>(
     };
 
     // Run each candidate and evaluate
-    let mut scored: Vec<(String, Vec<ChunkForEval>, Vec<serde_json::Value>, CandidateScore)> =
-        Vec::new();
+    let mut scored: Vec<(
+        String,
+        Vec<ChunkForEval>,
+        Vec<serde_json::Value>,
+        CandidateScore,
+    )> = Vec::new();
 
     for method in &screened {
         let result = run_candidate(text, method, provider, llm_client, config).await;
@@ -360,8 +365,8 @@ async fn run_candidate<P: EmbeddingProvider>(
             Ok((evals, json_chunks))
         }
         "intent" => {
-            let client = llm_client
-                .ok_or_else(|| anyhow::anyhow!("intent method requires LLM client"))?;
+            let client =
+                llm_client.ok_or_else(|| anyhow::anyhow!("intent method requires LLM client"))?;
             let intent_config = IntentConfig {
                 soft_budget: config.soft_budget,
                 hard_budget: config.hard_budget,
@@ -385,8 +390,8 @@ async fn run_candidate<P: EmbeddingProvider>(
             Ok((evals, json_chunks))
         }
         "enriched" => {
-            let client = llm_client
-                .ok_or_else(|| anyhow::anyhow!("enriched method requires LLM client"))?;
+            let client =
+                llm_client.ok_or_else(|| anyhow::anyhow!("enriched method requires LLM client"))?;
             let enriched_config = EnrichedConfig {
                 soft_budget: config.soft_budget,
                 hard_budget: config.hard_budget,
@@ -410,8 +415,8 @@ async fn run_candidate<P: EmbeddingProvider>(
             Ok((evals, json_chunks))
         }
         "topo" => {
-            let client = llm_client
-                .ok_or_else(|| anyhow::anyhow!("topo method requires LLM client"))?;
+            let client =
+                llm_client.ok_or_else(|| anyhow::anyhow!("topo method requires LLM client"))?;
             let topo_config = TopoConfig {
                 soft_budget: config.soft_budget,
                 hard_budget: config.hard_budget,
@@ -503,7 +508,10 @@ mod tests {
 
         assert_eq!(included.len(), 5);
         for method in &candidates {
-            assert!(included.contains(method), "Expected {method} to be included");
+            assert!(
+                included.contains(method),
+                "Expected {method} to be included"
+            );
         }
     }
 

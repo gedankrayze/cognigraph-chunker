@@ -12,11 +12,9 @@ use super::enrichment::discourse::detect_discourse_markers;
 use super::enrichment::entities::extract_entities;
 use super::enrichment::heading_context::compute_heading_paths;
 use super::sir::{Sir, SirEdge, SirEdgeType, SirNode, SirNodeType};
-use super::topo_types::{
-    SectionClass, SectionClassification, TopoChunk, TopoResult,
-};
-use crate::llm::topo_agents::{inspect_sir, refine_partition};
+use super::topo_types::{SectionClass, SectionClassification, TopoChunk, TopoResult};
 use crate::llm::CompletionClient;
+use crate::llm::topo_agents::{inspect_sir, refine_partition};
 
 /// Configuration for topology-aware chunking.
 #[derive(Debug, Clone)]
@@ -102,13 +100,8 @@ pub async fn topo_chunk(
     let splittable_texts = collect_splittable_texts(&sir, &class_map, &blocks);
     let inspector_json = serde_json::to_string_pretty(&inspector_result.classifications)?;
 
-    let refiner_result = refine_partition(
-        llm_client,
-        &inspector_json,
-        &sir_for_llm,
-        &splittable_texts,
-    )
-    .await?;
+    let refiner_result =
+        refine_partition(llm_client, &inspector_json, &sir_for_llm, &splittable_texts).await?;
 
     // Step 6: Assembly — map partition back to text spans
     let chunks = assemble_chunks(
@@ -263,9 +256,9 @@ pub fn build_sir(
 
 /// Find where a section ends (next heading at same or higher level, or end of document).
 fn find_section_end(blocks: &[Block<'_>], heading_idx: usize, heading_level: usize) -> usize {
-    for i in (heading_idx + 1)..blocks.len() {
-        if blocks[i].kind == BlockKind::Heading {
-            let (level, _) = parse_heading(blocks[i].text);
+    for (i, block) in blocks.iter().enumerate().skip(heading_idx + 1) {
+        if block.kind == BlockKind::Heading {
+            let (level, _) = parse_heading(block.text);
             if level <= heading_level {
                 return i;
             }
@@ -324,15 +317,19 @@ fn collect_splittable_texts(
 
     for node in &sir.nodes {
         if node.node_type == SirNodeType::Section
-            && class_map.get(&node.id) == Some(&SectionClass::Splittable) {
-                let (start, end) = node.block_range;
-                let text: String = blocks[start..end]
-                    .iter()
-                    .map(|b| b.text)
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                parts.push(format!("--- Section {} (blocks {}..{}) ---\n{}", node.id, start, end, text));
-            }
+            && class_map.get(&node.id) == Some(&SectionClass::Splittable)
+        {
+            let (start, end) = node.block_range;
+            let text: String = blocks[start..end]
+                .iter()
+                .map(|b| b.text)
+                .collect::<Vec<_>>()
+                .join("\n");
+            parts.push(format!(
+                "--- Section {} (blocks {}..{}) ---\n{}",
+                node.id, start, end, text
+            ));
+        }
     }
 
     parts.join("\n\n")

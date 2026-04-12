@@ -76,9 +76,8 @@ pub async fn generate_intents(
         return Ok(vec![]);
     }
 
-    let user_prompt = format!(
-        "Generate up to {max_intents} predicted user queries for this document:\n\n{text}"
-    );
+    let user_prompt =
+        format!("Generate up to {max_intents} predicted user queries for this document:\n\n{text}");
 
     let response = client
         .complete_json(SYSTEM_PROMPT, &user_prompt, json_schema(max_intents))
