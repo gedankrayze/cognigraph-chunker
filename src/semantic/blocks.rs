@@ -10,7 +10,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag};
 use super::sentence::split_sentences;
 
 /// The kind of block extracted from the document.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum BlockKind {
     /// A sentence extracted from a paragraph.
     Sentence,

@@ -5,17 +5,27 @@
 //! Tables, code blocks, lists, and block quotes are kept as atomic units.
 //! Paragraphs are sentence-split for fine-grained boundary detection.
 
+pub mod adaptive_chunk;
+pub mod adaptive_types;
 pub mod blocks;
 pub mod cognitive_assemble;
 pub mod cognitive_rerank;
 pub mod cognitive_score;
 pub mod cognitive_types;
 pub mod diagnostics;
+pub mod enriched_chunk;
+pub mod enriched_types;
 pub mod enrichment;
 pub mod evaluation;
 pub mod graph_export;
+pub mod intent_chunk;
+pub mod intent_types;
 pub mod proposition_heal;
+pub mod quality_metrics;
 pub mod sentence;
+pub mod sir;
+pub mod topo_chunk;
+pub mod topo_types;
 
 use anyhow::{Result, bail};
 

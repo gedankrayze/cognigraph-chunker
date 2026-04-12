@@ -3,8 +3,11 @@
 //! Provides an OpenAI-compatible chat completion client that uses
 //! `response_format: json_schema` for guaranteed structured output.
 
+pub mod enrichment;
+pub mod intents;
 pub mod relations;
 pub mod synopsis;
+pub mod topo_agents;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};

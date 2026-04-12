@@ -1,12 +1,17 @@
 //! REST API module — Axum router setup and shared state.
 
+pub mod adaptive;
 pub mod chunk;
 pub mod cognitive;
+pub mod enriched;
 pub mod errors;
+pub mod evaluate;
 pub mod health;
+pub mod intent;
 pub mod merge;
 pub mod semantic;
 pub mod split;
+pub mod topo;
 pub mod types;
 
 use std::sync::Arc;
@@ -76,7 +81,24 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/cognitive",
             axum::routing::post(cognitive::cognitive_handler),
         )
+        .route(
+            "/api/v1/intent",
+            axum::routing::post(intent::intent_handler),
+        )
         .route("/api/v1/merge", axum::routing::post(merge::merge_handler))
+        .route(
+            "/api/v1/enriched",
+            axum::routing::post(enriched::enriched_handler),
+        )
+        .route(
+            "/api/v1/evaluate",
+            axum::routing::post(evaluate::evaluate_handler),
+        )
+        .route("/api/v1/topo", axum::routing::post(topo::topo_handler))
+        .route(
+            "/api/v1/adaptive",
+            axum::routing::post(adaptive::adaptive_handler),
+        )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             auth_middleware,
