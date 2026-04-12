@@ -1,14 +1,30 @@
 # The Complete Chunking Toolkit: From Bytes to Meaning
 
-The previous seven articles walked through a progression. We started with why chunking matters for AI retrieval, moved through fixed-size and delimiter strategies, introduced semantic chunking with embeddings and signal processing, showed how markdown-aware parsing preserves document structure, explained how token-aware merging normalizes chunk sizes, brought it all together in a single toolkit, and finally introduced cognition-aware chunking that preserves meaning across boundaries. This article is the complete picture — every chunking strategy CogniGraph Chunker offers, when to use each one, and how they compose into a pipeline that handles anything from a 500-word blog post to a 200-page clinical trial protocol.
+The previous articles walked through a progression. We started with why chunking matters for AI retrieval, moved through fixed-size and delimiter strategies, introduced semantic chunking with embeddings and signal processing, showed how markdown-aware parsing preserves document structure, explained how token-aware merging normalizes chunk sizes, brought it all together in a single toolkit, and introduced cognition-aware chunking that preserves meaning across boundaries. Since then, the toolkit has grown to include intent-driven chunking, topology-aware chunking, enriched chunking, and adaptive method selection. This article is the complete picture -- every chunking strategy CogniGraph Chunker offers, when to use each one, and how they compose into a pipeline that handles anything from a 500-word blog post to a 200-page clinical trial protocol.
 
-## Five strategies, one toolkit
+## Eight strategies, one toolkit
 
-CogniGraph Chunker implements five chunking strategies. They form a hierarchy: each level builds on the one below it, adding capability at the cost of complexity.
+CogniGraph Chunker implements eight chunking strategies. They form a progression along two axes: structural awareness and intelligence source. The first four strategies use heuristics and embeddings. The last four add LLM reasoning.
+
+```
+Heuristic / Embedding methods:
+  Fixed-size        -> byte-level splitting with boundary awareness
+    + Delimiter     -> sentence-level splitting with pattern matching
+      + Semantic    -> embedding-based topic boundary detection
+        + Cognitive -> multi-signal boundary scoring with enrichment
+
+LLM-augmented methods:
+  Intent-driven     -> query-aligned boundaries via DP optimization
+  Enriched          -> self-describing chunks with metadata extraction
+  Topology-aware    -> SIR tree + dual-agent section classification
+  Adaptive          -> meta-router: runs candidates, picks best by quality score
+```
+
+Token-aware merging can be applied as a post-processing step after any strategy, grouping small chunks into right-sized units for your embedding model. Markdown-aware parsing runs automatically in the semantic, cognitive, intent, enriched, and topology-aware pipelines.
 
 ### 1. Fixed-size chunking
 
-The simplest strategy. Set a target size in bytes or characters, and the chunker walks through the text producing chunks of that size. Boundary awareness softens the edges — instead of cutting mid-word, the chunker looks for the nearest whitespace or punctuation to break cleanly.
+The simplest strategy. Set a target size in bytes or characters, and the chunker walks through the text producing chunks of that size. Boundary awareness softens the edges -- instead of cutting mid-word, the chunker looks for the nearest whitespace or punctuation to break cleanly.
 
 This is the right choice when uniformity matters more than coherence. Embedding models with strict token limits, batch processing pipelines that need predictable chunk sizes, or situations where the text has no meaningful structure to preserve.
 
@@ -21,7 +37,7 @@ cognigraph-chunker chunk -i document.md -s 1024
 
 ### 2. Delimiter splitting
 
-Split at every occurrence of a delimiter — sentence-ending punctuation, newlines, custom patterns. Multi-pattern matching uses an Aho-Corasick automaton compiled once and reused, so even complex delimiter sets add no per-character overhead.
+Split at every occurrence of a delimiter -- sentence-ending punctuation, newlines, custom patterns. Multi-pattern matching uses an Aho-Corasick automaton compiled once and reused, so even complex delimiter sets add no per-character overhead.
 
 This produces natural units (sentences, paragraphs) rather than arbitrary byte ranges. Combine it with token-aware merging to group short sentences into right-sized chunks.
 
@@ -36,7 +52,7 @@ cognigraph-chunker split -i document.md -d ".?!" --merge --chunk-size 256
 
 The first strategy that understands content. Each block gets an embedding vector from an embedding model, and the pipeline computes cosine similarity between adjacent blocks. A Savitzky-Golay filter smooths the similarity curve, and local minima (valleys) become candidate split points. Where similarity drops, topics change, and the chunker splits.
 
-This requires an embedding provider — Ollama, OpenAI, ONNX Runtime, Cloudflare Workers AI, or an OAuth-protected endpoint — but the result is chunks that align with actual topic boundaries rather than arbitrary positions.
+This requires an embedding provider -- Ollama, OpenAI, ONNX Runtime, Cloudflare Workers AI, or an OAuth-protected endpoint -- but the result is chunks that align with actual topic boundaries rather than arbitrary positions.
 
 ```sh
 cognigraph-chunker semantic -i document.md --provider ollama
@@ -49,48 +65,83 @@ cognigraph-chunker semantic -i document.md --provider ollama
 
 Extends semantic chunking with eight signals instead of one. Beyond embedding similarity, the boundary scorer evaluates entity continuity, discourse continuation, heading context, structural affinity, topic shift, orphan risk, and budget pressure. Blocks are enriched with named entities, pronouns, demonstratives, discourse markers, and heading ancestry before scoring.
 
-The result is chunks that preserve not just topics but propositions — the "who did what to whom" structure that makes text retrievable and answerable.
+The result is chunks that preserve not just topics but propositions -- the "who did what to whom" structure that makes text retrievable and answerable.
 
 ```sh
 cognigraph-chunker cognitive -i document.md --provider ollama
 ```
 
-**Strengths:** Preserves entity chains, causal links, and discourse structure. Heading attachment. Cross-chunk entity tracking. Quality metrics on every run. Multilingual support for 14 language groups.
+**Strengths:** Preserves entity chains, causal links, and discourse structure. Heading attachment. Cross-chunk entity tracking. Quality metrics on every run. Multilingual support for 14 language groups. Optional cross-encoder reranking on ambiguous boundaries.
 **Weaknesses:** More computation than semantic chunking (though embedding latency still dominates). Not needed for simple, topically distinct documents.
 
-### 5. Cognitive chunking with reranking
+### 5. Intent-driven chunking
 
-For documents where boundary decisions are close calls, ambiguous boundaries (those within half a standard deviation of the mean join score) can be refined by a cross-encoder model. The reranker scores the text pair through a sequence classification model, and the result is blended with the original similarity score.
+Optimizes boundaries for predicted user queries rather than topic transitions. An LLM generates 10-30 hypothetical queries that users might ask about the document, classified by type (factual, procedural, conceptual, comparative). Each candidate chunk is scored by the cosine similarity between its centroid embedding and the intent embeddings. Dynamic programming finds the globally optimal partition -- unlike greedy approaches, the DP evaluates downstream consequences of every boundary decision.
 
-Typically 10-20% of boundaries qualify as ambiguous, so the reranker processes a fraction of the total — enough to improve precision without O(n) inference cost.
+This is the right choice when retrieval quality is the primary objective and you can tolerate the cost of an LLM call plus embedding the generated intents. It works best for reference manuals, knowledge bases, FAQ compilations, and compliance documents where users have diverse, specific information needs. See [Article 10](10-intent-driven-chunking.md) for the full pipeline description.
 
 ```sh
-cognigraph-chunker cognitive -i document.md --reranker models/ms-marco-MiniLM-L-6-v2
+cognigraph-chunker intent -i document.md -p openai --api-key $OPENAI_API_KEY
 ```
 
-**Strengths:** Precision improvement on uncertain boundaries. Selective — only processes ambiguous cases.
-**Weaknesses:** Requires an ONNX reranker model. Additional latency on ambiguous boundaries.
+**Strengths:** Chunks align with how readers search, not how authors organize. DP optimization avoids greedy traps. Partition score provides a direct quality measure.
+**Weaknesses:** Requires both an LLM and an embedding provider -- the most expensive method per document. Less useful for short documents or documents where structure itself is the information.
+**Requires:** Embedding provider + LLM.
 
-## How the strategies compose
+### 6. Enriched chunking
 
-These strategies aren't mutually exclusive alternatives — they're layers that compose. The cognitive pipeline includes everything below it:
+Produces self-describing chunks. Each chunk carries seven metadata fields extracted in a single LLM call: title, summary, keywords, typed entities, hypothetical questions, semantic keys, and category. Initial grouping is purely structural (no embeddings needed). The semantic keys create a rolling concept dictionary -- when the LLM processes chunks sequentially, it reuses keys for recurring concepts, creating explicit links between chunks. A recombination step merges chunks sharing the same keys using bin-packing.
 
-```
-Fixed-size         → byte-level splitting with boundary awareness
-  + Delimiter      → sentence-level splitting with pattern matching
-    + Markdown     → AST-aware block extraction (headings, tables, code, lists)
-      + Semantic   → embedding-based topic boundary detection
-        + Cognitive → multi-signal boundary scoring with enrichment
-          + Reranker → cross-encoder refinement on ambiguous boundaries
+This is the right choice when your retrieval pipeline supports hybrid search (BM25 + dense vectors), when you need HyDE-style retrieval, or when chunks need to be self-describing for downstream consumers that cannot access the original document. See [Article 12](12-enriched-chunking.md) for the full pipeline description.
+
+```sh
+cognigraph-chunker enriched -i document.md --api-key $OPENAI_API_KEY
 ```
 
-Token-aware merging can be applied as a post-processing step after any strategy, grouping small chunks into right-sized units for your embedding model.
+**Strengths:** Rich metadata enables hybrid retrieval (BM25 over keywords, HyDE via hypothetical questions, entity-type filtering, category routing). Semantic key dictionary provides concept-level document index. No embedding provider needed.
+**Weaknesses:** LLM cost scales linearly with chunk count. Metadata fields go unused if retrieval is purely dense-vector-based.
+**Requires:** LLM only (no embeddings).
 
-Markdown-aware parsing runs automatically in the semantic and cognitive pipelines. You don't need to configure it — the parser detects and preserves headings, tables, code blocks, lists, and block quotes as atomic units.
+### 7. Topology-aware chunking
+
+Builds a Structured Intermediate Representation (SIR) -- a tree mirroring the document's heading hierarchy with content blocks as leaves and cross-reference edges linking blocks that share entities or discourse continuations. Two LLM agents then make boundary decisions. The Inspector classifies each section node as atomic (keep together), splittable (can divide at block boundaries), or merge candidate (too small to stand alone). The Refiner determines optimal split points for splittable sections, merge directions for small sections, and handles cross-section dependencies.
+
+This is the right choice for deeply nested documents where heading hierarchy carries structural meaning: research papers, technical specifications, API documentation, legal documents with articles and sub-articles. See [Article 11](11-topology-aware-chunking.md) for the full pipeline description.
+
+```sh
+cognigraph-chunker topo -i document.md --api-key $OPENAI_API_KEY
+```
+
+**Strengths:** Preserves heading hierarchy and structural coupling. Cross-reference annotations between dependent sections. SIR construction is purely heuristic (no LLM calls). No embedding provider needed.
+**Weaknesses:** Less useful for flat documents without heading structure. LLM calls for two agents add latency.
+**Requires:** LLM only (no embeddings).
+
+### 8. Adaptive chunking
+
+A meta-router. It runs multiple candidate methods on the same document, scores each method's output using five intrinsic quality metrics, and returns the output from the method that scores highest. Pre-screening heuristics skip methods unlikely to help for a given document (topology-aware is skipped for flat documents, intent-driven for short documents, enriched for simple unstructured text).
+
+The five quality metrics, each scored 0.0 to 1.0:
+
+- **Size Compliance** -- fraction of chunks within the target size range
+- **Intrachunk Cohesion** -- mean sentence-to-chunk cosine similarity (is each chunk about one thing?)
+- **Contextual Coherence** -- cosine similarity between adjacent chunks (smooth transitions?)
+- **Block Integrity** -- fraction of structural elements (tables, code, lists) preserved intact
+- **Reference Completeness** -- absence of orphaned pronouns and dangling entity references at boundaries
+
+The full quality report is available with the `--report` flag, providing side-by-side comparison of how each candidate performed. See [Article 13](13-adaptive-chunking.md) for the full pipeline description.
+
+```sh
+cognigraph-chunker adaptive -i document.md -p openai --api-key $OPENAI_API_KEY \
+  --candidates semantic,cognitive,intent
+```
+
+**Strengths:** Per-document method selection without manual tuning. Quality report useful for benchmarking. Pre-screening keeps cost practical.
+**Weaknesses:** Most expensive option (runs multiple methods). Not useful when you already know which method works best.
+**Requires:** Embedding provider + optionally LLM (depending on candidates).
 
 ## Choosing a strategy
 
-The decision depends on your documents, your latency budget, and how much retrieval quality matters.
+The decision depends on your documents, your latency budget, your cost tolerance, and how much retrieval quality matters.
 
 | Scenario | Recommended strategy |
 |----------|---------------------|
@@ -99,14 +150,20 @@ The decision depends on your documents, your latency budget, and how much retrie
 | General documents with clear topic structure | Semantic |
 | Documents with entity chains, cross-references, causal reasoning | Cognitive |
 | Mission-critical retrieval where boundary precision matters | Cognitive + reranker |
+| Retrieval-optimized chunks aligned with user queries | Intent-driven |
+| Hybrid search pipelines needing rich metadata per chunk | Enriched |
+| Deeply nested documents with heading hierarchy | Topology-aware |
+| Diverse document types where no single method fits all | Adaptive |
 
-A practical approach is to start with semantic chunking. If retrieval quality is good enough, stay there. If you notice that retrieved chunks start with "It also..." or reference entities defined elsewhere, upgrade to cognitive chunking. The switch is a one-parameter change — the infrastructure, output format, and downstream pipeline stay the same.
+A practical approach is to start with semantic chunking. If retrieval quality is good enough, stay there. If retrieved chunks lack context -- they start with "It" or reference entities defined elsewhere -- upgrade to cognitive chunking. If your documents are deeply nested specifications, try topology-aware. If your retrieval pipeline supports hybrid search, enriched chunking provides the metadata to exploit it. If you process diverse document types and cannot predict the best method, use adaptive.
+
+At each step, the output format stays the same, the interfaces stay the same, and the downstream pipeline doesn't change. The chunking strategy is a parameter, not an architecture decision.
 
 ## Four interfaces, every strategy
 
-All strategies are available through all four interfaces:
+All eight strategies are available through all four interfaces:
 
-**CLI** — experiment and iterate. Pipe documents through subcommands (`chunk`, `split`, `semantic`, `cognitive`), adjust parameters with flags, and export to plain text, JSON, or JSONL.
+**CLI** -- experiment and iterate. Pipe documents through subcommands (`chunk`, `split`, `semantic`, `cognitive`, `intent`, `enriched`, `topo`, `adaptive`), adjust parameters with flags, and export to plain text, JSON, or JSONL.
 
 ```sh
 # Fixed-size
@@ -121,11 +178,20 @@ cognigraph-chunker semantic -i doc.md --provider openai -f json
 # Cognitive with relations and graph export
 cognigraph-chunker cognitive -i doc.md --provider openai --relations --graph -f json
 
-# Cognitive with reranker and signal diagnostics
-cognigraph-chunker cognitive -i doc.md --reranker models/ms-marco-MiniLM-L-6-v2 --emit-signals
+# Intent-driven with custom intent count
+cognigraph-chunker intent -i doc.md -p openai --api-key $KEY --max-intents 30
+
+# Enriched with metadata extraction
+cognigraph-chunker enriched -i doc.md --api-key $KEY -f json
+
+# Topology-aware with SIR output
+cognigraph-chunker topo -i doc.md --api-key $KEY -f json --emit-sir
+
+# Adaptive with quality report
+cognigraph-chunker adaptive -i doc.md -p openai --api-key $KEY -f json --report
 ```
 
-**REST API** — deploy as a microservice. Start with `cognigraph-chunker serve` and call endpoints:
+**REST API** -- deploy as a microservice. Start with `cognigraph-chunker serve` and call endpoints:
 
 | Endpoint | Strategy |
 |----------|----------|
@@ -133,17 +199,21 @@ cognigraph-chunker cognitive -i doc.md --reranker models/ms-marco-MiniLM-L-6-v2 
 | `POST /api/v1/split` | Delimiter |
 | `POST /api/v1/semantic` | Semantic |
 | `POST /api/v1/cognitive` | Cognitive |
+| `POST /api/v1/intent` | Intent-driven |
+| `POST /api/v1/enriched` | Enriched |
+| `POST /api/v1/topo` | Topology-aware |
+| `POST /api/v1/adaptive` | Adaptive |
 | `POST /api/v1/merge` | Token-aware merge (post-processing) |
 
 Bearer token authentication, CORS, SSRF protection, request size limits, and timeouts are built in.
 
-**Python bindings** — Rust performance in Python workflows. The `Chunker` class handles fixed-size and delimiter splitting. The `semantic_chunk()` function runs the full semantic pipeline. Signal processing primitives (`savgol_filter()`, `windowed_cross_similarity()`) are exposed individually with NumPy support.
+**Python bindings** -- Rust performance in Python workflows. The `Chunker` class handles fixed-size and delimiter splitting. The `semantic_chunk()` function runs the full semantic pipeline. Signal processing primitives (`savgol_filter()`, `windowed_cross_similarity()`) are exposed individually with NumPy support.
 
-**Docker** — container deployment with a single image. The multi-stage Dockerfile produces a minimal binary. Set `PORT`, `API_KEY`, and provider credentials via environment variables.
+**Docker** -- container deployment with a single image. The multi-stage Dockerfile produces a minimal binary. Set `PORT`, `API_KEY`, and provider credentials via environment variables.
 
 ## Five embedding providers
 
-The semantic and cognitive strategies require embeddings. CogniGraph Chunker supports five providers through a unified trait — switching between them is a one-parameter change.
+The semantic, cognitive, intent, and adaptive strategies require embeddings. CogniGraph Chunker supports five providers through a unified trait -- switching between them is a one-parameter change.
 
 | Provider | Use case | Configuration |
 |----------|----------|---------------|
@@ -153,23 +223,19 @@ The semantic and cognitive strategies require embeddings. CogniGraph Chunker sup
 | **Cloudflare Workers AI** | Teams on Cloudflare infrastructure | Auth token + account ID, optional AI Gateway |
 | **OAuth** | Enterprise API gateways (Azure, corporate proxies) | Client credentials, token URL, optional TLS override |
 
-## What cognitive chunking adds
+Strategies that need only an LLM (enriched, topo) use an OpenAI-compatible completion API directly. The default model is `gpt-4.1-mini`, configurable via `COGNIGRAPH_LLM_MODEL` or per-call flags.
 
-The cognitive pipeline is the most capable strategy in the toolkit. Beyond topic-aware boundaries, it provides:
+## LLM enrichment features
 
-**Enriched metadata per chunk** — heading ancestry, dominant entities (top 5 by frequency), all entities (full list), token estimate, and continuity confidence score.
+Several features use LLM calls to add structured information to chunks. These are available across multiple strategies:
 
-**Cross-chunk entity tracking** — a `shared_entities` map showing which entities appear in which chunks. Only entities in 2+ chunks are included, creating a focused index of concept threads that span the document.
+**Relation extraction** (`--relations` flag on cognitive chunking) -- LLM-based subject-predicate-object triple extraction per chunk. Produces structured knowledge that supports graph-based retrieval.
 
-**Proposition healing** — after initial assembly, a healing pass scans boundaries for incomplete propositions: unresolved pronouns, dangling demonstratives, discourse continuations, and high entity overlap with similar topics. Chunks that would be more coherent together are merged, as long as the combined size stays within budget.
+**Chunk synopsis** (`--synopsis` flag on cognitive chunking) -- LLM-generated one-sentence summaries per chunk for preview and navigation.
 
-**Evaluation metrics** on every run — entity orphan rate, pronoun boundary rate, heading attachment rate, and discourse break rate. These provide quantitative chunk quality assessment without human evaluation.
+**Graph export** (`--graph` flag on cognitive chunking) -- output as nodes (chunks) and edges (adjacency + shared entity links), ready for import into graph databases or visualization tools.
 
-**Relation extraction** (optional) — LLM-based subject-predicate-object triple extraction per chunk, producing structured knowledge that supports graph-based retrieval.
-
-**Graph export** (optional) — output as nodes (chunks) and edges (adjacency + shared entity links), ready for import into graph databases or visualization tools.
-
-**Multilingual support** — automatic language detection across 70+ languages, with language-specific enrichment for 14 language groups including English, German, French, Spanish, Portuguese, Italian, Dutch, Russian, Turkish, Polish, Chinese, Japanese, Korean, and Arabic. CJK text gets script-based entity detection (Katakana spans, Latin-in-CJK terms) alongside the standard heuristics.
+**Enriched metadata** (enriched chunking mode) -- title, summary, keywords, typed entities, hypothetical questions, semantic keys, and category per chunk. Enables hybrid retrieval strategies beyond dense vector similarity.
 
 ## Performance characteristics
 
@@ -182,14 +248,18 @@ The core algorithms are Rust, operating on byte slices for zero-copy performance
 | Semantic | Seconds | Embedding provider API |
 | Cognitive | Seconds | Embedding provider API (enrichment adds negligible overhead) |
 | Cognitive + reranker | Seconds | Embedding + reranker inference on ambiguous boundaries |
+| Intent-driven | Seconds | LLM (intent generation) + embedding provider |
+| Enriched | Seconds | LLM (one call per chunk for metadata extraction) |
+| Topology-aware | Seconds | LLM (two agent calls: Inspector + Refiner) |
+| Adaptive | Sum of candidates | Runs multiple methods; pre-screening reduces cost |
 
-For semantic and cognitive chunking, embedding computation dominates. The signal processing, enrichment, scoring, assembly, and healing stages together take milliseconds even on large documents. With a local ONNX embedding model, end-to-end processing of a 100-page document completes in seconds. With a remote API like OpenAI, network latency is the limiting factor.
+For embedding-based strategies, embedding computation dominates. The signal processing, enrichment, scoring, assembly, and healing stages together take milliseconds even on large documents. For LLM-based strategies, the LLM calls dominate. With a local ONNX embedding model, end-to-end processing of a 100-page document completes in seconds. With a remote API, network latency is the limiting factor.
 
 ## From simple to sophisticated
 
-The value of having all strategies in one toolkit is that you can move along the complexity axis without changing your infrastructure.
+The value of having all eight strategies in one toolkit is that you can move along the complexity axis without changing your infrastructure.
 
-Start with fixed-size chunking to get something working. Move to delimiter splitting when you need sentence-level boundaries. Add semantic chunking when you need topic awareness. Upgrade to cognitive chunking when retrieved chunks lack context — when they start with "It" or reference entities defined elsewhere. Add the reranker when boundary precision on ambiguous cases matters.
+Start with fixed-size chunking to get something working. Move to delimiter splitting when you need sentence-level boundaries. Add semantic chunking when you need topic awareness. Upgrade to cognitive chunking when retrieved chunks lack context. Switch to intent-driven when you want chunks optimized for how users actually search. Use enriched chunking when your pipeline can exploit rich metadata. Try topology-aware for deeply nested documents. Deploy adaptive when you process diverse documents and want automatic method selection.
 
 At each step, the output format stays the same, the interfaces stay the same, and the downstream pipeline doesn't change. The chunking strategy is a parameter, not an architecture decision.
 

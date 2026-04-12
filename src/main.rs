@@ -86,6 +86,47 @@ EXAMPLES:
 ")]
     Cognitive(Box<cli::cognitive_cmd::CognitiveArgs>),
 
+    /// Intent-driven chunking using LLM-predicted queries and DP alignment
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker intent -i doc.md -p openai
+  cognigraph-chunker intent -i doc.md -p openai -f json
+  cognigraph-chunker intent -i doc.md --max-intents 10 --soft-budget 256
+  cognigraph-chunker intent -i doc.md --intent-model gpt-4.1-mini
+")]
+    Intent(Box<cli::intent_cmd::IntentArgs>),
+
+    /// Enriched chunking with LLM metadata and semantic-key recombination
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker enriched -i doc.md
+  cognigraph-chunker enriched -i doc.md -f json
+  cognigraph-chunker enriched -i doc.md --soft-budget 256 --hard-budget 512
+  cognigraph-chunker enriched -i doc.md --no-recombine --no-re-enrich
+  cognigraph-chunker enriched -i doc.md --enrichment-model gpt-4.1-mini
+")]
+    Enriched(Box<cli::enriched_cmd::EnrichedArgs>),
+
+    /// Topology-aware chunking using SIR and dual LLM agents
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker topo -i doc.md
+  cognigraph-chunker topo -i doc.md -f json --emit-sir
+  cognigraph-chunker topo -i doc.md --soft-budget 256 --hard-budget 512
+  cognigraph-chunker topo -i doc.md --topo-model gpt-4.1-mini
+")]
+    Topo(Box<cli::topo_cmd::TopoArgs>),
+
+    /// Adaptive chunking: evaluates multiple methods and picks the best
+    #[command(after_help = "\
+EXAMPLES:
+  cognigraph-chunker adaptive -i doc.md
+  cognigraph-chunker adaptive -i doc.md -p openai --report
+  cognigraph-chunker adaptive -i doc.md --candidates semantic,cognitive,intent
+  cognigraph-chunker adaptive -i doc.md --force-candidates --metric-weights sc=0.3,icc=0.2
+")]
+    Adaptive(Box<cli::adaptive_cmd::AdaptiveArgs>),
+
     /// Start REST API server
     #[command(after_help = "\
 EXAMPLES:
@@ -118,6 +159,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Split(args) => cli::split_cmd::run(args, &cli.global),
         Commands::Semantic(args) => cli::semantic_cmd::run(args, &cli.global).await,
         Commands::Cognitive(args) => cli::cognitive_cmd::run(args, &cli.global).await,
+        Commands::Intent(args) => cli::intent_cmd::run(args, &cli.global).await,
+        Commands::Enriched(args) => cli::enriched_cmd::run(args, &cli.global).await,
+        Commands::Topo(args) => cli::topo_cmd::run(args, &cli.global).await,
+        Commands::Adaptive(args) => cli::adaptive_cmd::run(args, &cli.global).await,
         Commands::Serve(args) => cli::serve_cmd::run(args).await,
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();

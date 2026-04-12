@@ -1,14 +1,19 @@
 # cognigraph-chunker
 
-Fast text chunking toolkit with fixed-size, delimiter-based, semantic, and cognition-aware strategies.
+Fast text chunking toolkit with fixed-size, delimiter-based, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive strategies.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## Features
 
-- **Four chunking strategies** -- fixed-size with delimiter-aware boundaries, delimiter/pattern splitting, embedding-based semantic chunking, and cognition-aware chunking with multi-signal boundary scoring
+- **Eight chunking strategies** -- fixed-size, delimiter/pattern splitting, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive (auto-selecting)
 - **Cognition-aware chunking** -- 8-signal boundary scoring (semantic similarity, entity continuity, discourse continuation, heading context, structural affinity, topic shift, orphan risk, budget pressure), proposition-aware healing, cross-chunk entity tracking, and automatic quality metrics
+- **Intent-driven chunking** -- boundaries optimized for predicted user queries using LLM intent generation, embedding alignment, and dynamic programming for globally optimal partitions
+- **Topology-aware chunking** -- builds a Structured Intermediate Representation (SIR) tree from heading hierarchy, then uses dual LLM agents (Inspector + Refiner) to produce structure-preserving chunks
+- **Enriched chunking** -- single LLM call per chunk extracts 7 metadata fields (title, summary, keywords, typed entities, hypothetical questions, semantic keys, category), followed by semantic-key-based recombination
+- **Adaptive chunking** -- meta-router that runs candidate methods, scores output with 5 intrinsic quality metrics (size compliance, intrachunk cohesion, contextual coherence, block integrity, reference completeness), and returns the best result
 - **Multilingual** -- automatic language detection across 70+ languages with language-specific enrichment for 14 language groups (English, German, French, Spanish, Portuguese, Italian, Dutch, Russian, Turkish, Polish, Chinese, Japanese, Korean, Arabic)
+- **Quality metrics module** -- standalone 5-metric evaluation (SC, ICC, DCC, BI, RC) usable for benchmarking any chunking output via API or CI assertions
 - **Four interfaces** -- CLI tool, REST API (Axum), Python bindings (PyO3), and Docker
 - **Five embedding providers** -- OpenAI, Ollama, ONNX Runtime (local), Cloudflare Workers AI, and OAuth-authenticated OpenAI-compatible endpoints
 - **Markdown-aware** -- parses markdown AST to preserve tables, code blocks, headings, and lists as atomic units
@@ -17,6 +22,19 @@ Fast text chunking toolkit with fixed-size, delimiter-based, semantic, and cogni
 - **Ambiguous boundary refinement** -- optional cross-encoder reranking for precision improvement on uncertain boundaries (NVIDIA NIM, Cohere, Cloudflare Workers AI, OAuth-authenticated endpoints, or local ONNX)
 - **Merge post-processing** -- combine small chunks into token-budget groups across all strategies
 - **Output formats** -- plain text, JSON, and JSONL
+
+## Methods at a Glance
+
+| Method | CLI Command | LLM Required | Embedding Required | Key Strength |
+|--------|-------------|--------------|-------------------|--------------|
+| Fixed-size | `chunk` | No | No | Fast, predictable chunk sizes |
+| Delimiter split | `split` | No | No | Precise boundary control |
+| Semantic | `semantic` | No | Yes | Topic-boundary detection |
+| Cognitive | `cognitive` | Optional | Yes | Entity/discourse preservation |
+| Intent-driven | `intent` | Yes | Yes | Retrieval-optimized boundaries |
+| Topology-aware | `topo` | Yes | No | Hierarchical structure preservation |
+| Enriched | `enriched` | Yes | No | Self-describing chunks with metadata |
+| Adaptive | `adaptive` | Depends | Yes | Auto-selects best method per document |
 
 ## Installation
 
@@ -64,6 +82,18 @@ cognigraph-chunker cognitive -i document.md --graph
 
 # Cognitive chunking with LLM-based relation extraction
 cognigraph-chunker cognitive -i document.md --relations -f json
+
+# Intent-driven chunking (boundaries optimized for retrieval)
+cognigraph-chunker intent -i document.md -p openai --api-key $OPENAI_API_KEY
+
+# Topology-aware chunking (preserves heading hierarchy)
+cognigraph-chunker topo -i document.md --api-key $OPENAI_API_KEY
+
+# Enriched chunking (7 metadata fields per chunk)
+cognigraph-chunker enriched -i document.md --api-key $OPENAI_API_KEY
+
+# Adaptive chunking (auto-selects best method)
+cognigraph-chunker adaptive -i document.md -p openai --api-key $OPENAI_API_KEY
 ```
 
 ### REST API
@@ -321,6 +351,137 @@ cognigraph-chunker cognitive -i doc.md --emit-signals --stats -f json
 cognigraph-chunker cognitive -i doc.md --no-markdown
 ```
 
+### `intent` -- Intent-driven chunking
+
+Split text with boundaries optimized for predicted user queries using LLM intent generation and dynamic programming.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--input` | `-i` | `-` (stdin) | Input file path, or `-` for stdin |
+| `--provider` | `-p` | `ollama` | Embedding provider: `ollama`, `openai`, `onnx`, `cloudflare`, `oauth` |
+| `--model` | `-m` | provider default | Embedding model name |
+| `--api-key` | | none | API key for LLM and OpenAI embeddings |
+| `--base-url` | | none | Base URL override for the embedding API |
+| `--intent-model` | | `gpt-4.1-mini` | LLM model for intent generation |
+| `--llm-base-url` | | `https://api.openai.com/v1` | LLM endpoint URL |
+| `--max-intents` | | 20 | Maximum number of intents to generate |
+| `--soft-budget` | | 512 | Target tokens per chunk |
+| `--hard-budget` | | 768 | Maximum tokens per chunk |
+| `--format` | `-f` | plain | Output format: `plain`, `json`, `jsonl` |
+| `--merge` | | off | Post-process by merging small chunks |
+| `--chunk-size` | | 512 | Target token count per merged chunk |
+
+**Examples:**
+
+```sh
+# Intent-driven chunking with OpenAI
+cognigraph-chunker intent -i doc.md -p openai --api-key $KEY
+
+# More intents for a long document
+cognigraph-chunker intent -i doc.md -p openai --api-key $KEY --max-intents 30
+
+# Smaller chunks
+cognigraph-chunker intent -i doc.md -p openai --api-key $KEY \
+  --soft-budget 256 --hard-budget 512 -f json
+```
+
+### `topo` -- Topology-aware chunking
+
+Split text by building a Structured Intermediate Representation (SIR) from heading hierarchy, then using dual LLM agents to classify and partition sections.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--input` | `-i` | `-` (stdin) | Input file path, or `-` for stdin |
+| `--api-key` | | none | API key for LLM |
+| `--topo-model` | | `gpt-4.1-mini` | LLM model for Inspector and Refiner agents |
+| `--llm-base-url` | | `https://api.openai.com/v1` | LLM endpoint URL |
+| `--soft-budget` | | 512 | Target tokens per chunk |
+| `--hard-budget` | | 768 | Maximum tokens per chunk |
+| `--format` | `-f` | plain | Output format: `plain`, `json`, `jsonl` |
+| `--emit-sir` | | off | Include SIR structure in JSON output |
+
+**Examples:**
+
+```sh
+# Topology-aware chunking
+cognigraph-chunker topo -i doc.md --api-key $KEY
+
+# Include SIR in output
+cognigraph-chunker topo -i doc.md --api-key $KEY -f json --emit-sir
+
+# Custom model and budgets
+cognigraph-chunker topo -i doc.md --api-key $KEY \
+  --topo-model gpt-4.1-mini --soft-budget 256 --hard-budget 512
+```
+
+### `enriched` -- Enriched chunking
+
+Structure-preserving chunking with single-call LLM enrichment (7 metadata fields per chunk) and semantic-key-based recombination.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--input` | `-i` | `-` (stdin) | Input file path, or `-` for stdin |
+| `--api-key` | | none | API key for LLM |
+| `--enrichment-model` | | `gpt-4.1-mini` | LLM model for enrichment |
+| `--llm-base-url` | | `https://api.openai.com/v1` | LLM endpoint URL |
+| `--soft-budget` | | 512 | Target tokens per chunk |
+| `--hard-budget` | | 768 | Maximum tokens per chunk |
+| `--no-recombine` | | off | Skip key-based recombination step |
+| `--no-re-enrich` | | off | Skip re-enrichment of merged chunks |
+| `--format` | `-f` | plain | Output format: `plain`, `json`, `jsonl` |
+
+**Examples:**
+
+```sh
+# Enriched chunking with metadata
+cognigraph-chunker enriched -i doc.md --api-key $KEY
+
+# Metadata only, no recombination
+cognigraph-chunker enriched -i doc.md --api-key $KEY --no-recombine
+
+# JSON output
+cognigraph-chunker enriched -i doc.md --api-key $KEY -f json
+```
+
+### `adaptive` -- Adaptive chunking
+
+Meta-router that runs candidate methods, scores output with 5 quality metrics, and returns the best result.
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--input` | `-i` | `-` (stdin) | Input file path, or `-` for stdin |
+| `--provider` | `-p` | `ollama` | Embedding provider (for metrics + embedding-based candidates) |
+| `--model` | `-m` | provider default | Embedding model name |
+| `--api-key` | | none | API key for LLM and OpenAI embeddings |
+| `--base-url` | | none | Base URL override for the embedding API |
+| `--llm-base-url` | | `https://api.openai.com/v1` | LLM endpoint URL |
+| `--llm-model` | | `gpt-4.1-mini` | LLM model for LLM-based candidates |
+| `--candidates` | | `semantic,cognitive,intent,enriched,topo` | Comma-separated method names to evaluate |
+| `--force-candidates` | | off | Bypass pre-screening heuristics |
+| `--metric-weights` | | equal (0.20 each) | Metric weights as `key=value` pairs |
+| `--soft-budget` | | 512 | Target tokens per chunk |
+| `--hard-budget` | | 768 | Maximum tokens per chunk |
+| `--format` | `-f` | plain | Output format: `plain`, `json`, `jsonl` |
+| `--report` | | off | Include quality report in output (JSON only) |
+
+**Examples:**
+
+```sh
+# Adaptive chunking with all candidates
+cognigraph-chunker adaptive -i doc.md -p openai --api-key $KEY
+
+# Restrict candidates
+cognigraph-chunker adaptive -i doc.md -p openai --api-key $KEY \
+  --candidates semantic,cognitive,intent
+
+# Custom metric weights
+cognigraph-chunker adaptive -i doc.md -p openai --api-key $KEY \
+  --metric-weights sc=0.10,icc=0.30,dcc=0.15,bi=0.15,rc=0.30
+
+# Include quality report
+cognigraph-chunker adaptive -i doc.md -p openai --api-key $KEY -f json --report
+```
+
 ### `serve` -- REST API server
 
 Start an HTTP server exposing all chunking operations.
@@ -552,6 +713,178 @@ Cognition-aware chunking with multi-signal boundary scoring.
     { "source": 0, "target": 3, "edge_type": "entity", "entity": "CogniGraph" }
   ],
   "metadata": { "node_count": 5, "edge_count": 12 }
+}
+```
+
+### `POST /api/v1/intent`
+
+Intent-driven chunking with retrieval-optimized boundaries.
+
+**Request body:**
+```json
+{
+  "text": "string (required)",
+  "provider": "openai",
+  "model": null,
+  "api_key": null,
+  "base_url": null,
+  "intent_model": "gpt-4.1-mini",
+  "max_intents": 20,
+  "soft_budget": 512,
+  "hard_budget": 768
+}
+```
+
+- `intent_model`: LLM for generating hypothetical queries (default: `gpt-4.1-mini`)
+- `max_intents`: number of intents to generate (default: 20)
+- All embedding provider fields work the same as `/api/v1/semantic`
+
+**Response:**
+```json
+{
+  "chunks": [
+    { "text": "...", "offset_start": 0, "offset_end": 1234, "token_estimate": 450, "best_intent": 2, "alignment_score": 0.87, "heading_path": ["Introduction"] }
+  ],
+  "intents": [
+    { "query": "What are the side effects?", "intent_type": "factual", "matched_chunks": [3, 7] }
+  ],
+  "partition_score": 0.82,
+  "count": 12
+}
+```
+
+### `POST /api/v1/topo`
+
+Topology-aware chunking with SIR and dual-agent refinement.
+
+**Request body:**
+```json
+{
+  "text": "string (required)",
+  "topo_model": "gpt-4.1-mini",
+  "soft_budget": 512,
+  "hard_budget": 768,
+  "emit_sir": false
+}
+```
+
+- `topo_model`: LLM for Inspector and Refiner agents (default: `gpt-4.1-mini`)
+- `emit_sir`: include the SIR structure in the response
+
+**Response:**
+```json
+{
+  "chunks": [
+    { "text": "...", "offset_start": 0, "offset_end": 2048, "token_estimate": 480, "heading_path": ["Methods", "Data Collection"], "section_classification": "atomic", "cross_references": [4] }
+  ],
+  "count": 8
+}
+```
+
+### `POST /api/v1/enriched`
+
+Enriched chunking with 7 metadata fields and key-based recombination.
+
+**Request body:**
+```json
+{
+  "text": "string (required)",
+  "enrichment_model": "gpt-4.1-mini",
+  "soft_budget": 512,
+  "hard_budget": 768,
+  "recombine": true,
+  "re_enrich": true
+}
+```
+
+- `enrichment_model`: LLM for metadata extraction (default: `gpt-4.1-mini`)
+- `recombine`: enable key-based recombination (default: true)
+- `re_enrich`: re-enrich merged chunks (default: true)
+
+**Response:**
+```json
+{
+  "chunks": [
+    { "text": "...", "title": "...", "summary": "...", "keywords": [...], "typed_entities": [...], "hypothetical_questions": [...], "semantic_keys": [...], "category": "...", "heading_path": [...] }
+  ],
+  "key_dictionary": { "xr-7742-dosing": [0, 3] },
+  "count": 10
+}
+```
+
+### `POST /api/v1/adaptive`
+
+Adaptive chunking: runs candidate methods, scores with quality metrics, returns the best.
+
+**Request body:**
+```json
+{
+  "text": "string (required)",
+  "provider": "openai",
+  "model": null,
+  "api_key": null,
+  "candidates": ["semantic", "cognitive", "intent", "enriched", "topo"],
+  "soft_budget": 512,
+  "hard_budget": 768,
+  "metric_weights": { "sc": 0.20, "icc": 0.20, "dcc": 0.20, "bi": 0.20, "rc": 0.20 },
+  "include_report": true
+}
+```
+
+- `candidates`: methods to evaluate (default: all five)
+- `metric_weights`: custom weights for the composite score (default: equal)
+- `include_report`: include per-candidate quality metrics in the response
+- All embedding provider fields work the same as `/api/v1/semantic`
+
+**Response:**
+```json
+{
+  "winner": "cognitive",
+  "chunks": [ ... ],
+  "count": 12,
+  "report": {
+    "candidates": [
+      { "method": "semantic", "metrics": { "size_compliance": 0.85, "intrachunk_cohesion": 0.72, "contextual_coherence": 0.68, "block_integrity": 0.90, "reference_completeness": 0.65, "composite": 0.76 }, "chunk_count": 15 },
+      { "method": "cognitive", "metrics": { "size_compliance": 0.92, "intrachunk_cohesion": 0.78, "contextual_coherence": 0.71, "block_integrity": 0.95, "reference_completeness": 0.88, "composite": 0.85 }, "chunk_count": 12 }
+    ],
+    "pre_screening": [
+      { "method": "topo", "included": false, "reason": "Document has < 2 heading levels" }
+    ]
+  }
+}
+```
+
+### `POST /api/v1/evaluate`
+
+Evaluate pre-chunked output with the 5 quality metrics (standalone, works with any chunking method).
+
+**Request body:**
+```json
+{
+  "text": "string (required, original document)",
+  "chunks": [
+    { "text": "...", "offset_start": 0, "offset_end": 1024 }
+  ],
+  "provider": "openai",
+  "model": null,
+  "api_key": null,
+  "soft_budget": 512,
+  "hard_budget": 768,
+  "metric_weights": { "sc": 0.20, "icc": 0.20, "dcc": 0.20, "bi": 0.20, "rc": 0.20 }
+}
+```
+
+**Response:**
+```json
+{
+  "metrics": {
+    "size_compliance": 0.90,
+    "intrachunk_cohesion": 0.78,
+    "contextual_coherence": 0.72,
+    "block_integrity": 0.95,
+    "reference_completeness": 0.85,
+    "composite": 0.84
+  }
 }
 ```
 
@@ -919,10 +1252,16 @@ cognigraph-chunker/
     semantic/           # Semantic and cognitive chunking pipelines
       enrichment/       # Cognitive enrichment (entities, discourse, heading context, language)
       cognitive_*.rs    # Cognitive scoring, assembly, and reranking
+      intent_chunk.rs   # Intent-driven DP alignment pipeline
+      topo_chunk.rs     # Topology-aware SIR + dual-agent pipeline
+      enriched_chunk.rs # Enriched chunking with key-based recombination
+      adaptive_chunk.rs # Adaptive meta-router and candidate scoring
+      quality_metrics.rs # 5 intrinsic quality metrics (standalone)
+      sir.rs            # Structured Intermediate Representation (SIR)
       proposition_heal.rs # Proposition-aware chunk healing
       graph_export.rs   # Graph export format (nodes + edges)
-      evaluation.rs     # Quality metrics
-    llm/                # LLM integration (relation extraction, synopsis generation)
+      evaluation.rs     # Cognitive evaluation metrics
+    llm/                # LLM integration (intents, enrichment, topo agents, relations, synopsis)
     api/                # REST API (Axum handlers, types, middleware)
     cli/                # CLI subcommands and options
     output/             # Output formatting (plain, json, jsonl)
@@ -933,6 +1272,8 @@ cognigraph-chunker/
 The core algorithms operate on byte slices for zero-copy performance. The semantic pipeline splits text into blocks (markdown-aware or sentence-based), computes embeddings, calculates cross-similarity distances, applies Savitzky-Golay smoothing, and detects topic boundaries at local minima.
 
 The cognitive pipeline extends this with block-level enrichment (entity detection, discourse markers, heading context, continuation flags), weighted multi-signal boundary scoring, valley-based assembly with soft/hard token budgets, and proposition-aware healing that merges chunks with broken cross-references. Language detection runs automatically, selecting appropriate heuristics for 14 language groups.
+
+Four additional methods address specialized use cases: intent-driven chunking uses LLM-generated hypothetical queries and dynamic programming to optimize boundaries for retrieval; topology-aware chunking builds a SIR tree from heading hierarchy and uses dual LLM agents for structure-preserving partitioning; enriched chunking extracts 7 metadata fields per chunk via single LLM calls and recombines chunks sharing semantic keys; adaptive chunking runs multiple candidates and selects the best using 5 intrinsic quality metrics.
 
 ## License
 
