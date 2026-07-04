@@ -494,6 +494,7 @@ Start an HTTP server exposing all chunking operations.
 | `--no-auth` | | off | Run without authentication (insecure) |
 | `--allow-private-urls` | | off | Allow embedding provider base URLs pointing to private/loopback IPs |
 | `--cors-origin` | | none | Allowed CORS origins (repeatable; omit for same-origin only) |
+| `--onnx-model-dir` | | none | Directory containing ONNX models that API clients may reference via `model_path`/`reranker_path`. Omitted = model loading via the API is disabled |
 
 **Examples:**
 
@@ -616,12 +617,12 @@ Semantic chunking with embeddings.
 ```
 
 - `provider`: `"ollama"` (default), `"openai"`, `"onnx"`, `"cloudflare"`, or `"oauth"`
-- `model_path` is required when `provider` is `"onnx"`
+- `model_path` is required when `provider` is `"onnx"`. The server must be started with `--onnx-model-dir`, and the path must resolve inside that directory (relative paths are resolved against it)
 - `cf_auth_token` and `cf_account_id` are required for `"cloudflare"` (also reads env vars or `.env.cloudflare`)
 - `cf_ai_gateway` optionally routes requests through a Cloudflare AI Gateway
 - `oauth_*` fields are required for `"oauth"` (also reads env vars or `.env.oauth`)
 - `danger_accept_invalid_certs` disables TLS verification for corporate proxies with custom CAs
-- `base_url` is validated against SSRF (private IPs rejected unless `--allow-private-urls` is set)
+- All user-supplied outbound URLs (`base_url`, `llm_base_url`, `oauth_token_url`, `oauth_base_url`) are validated against SSRF (private/loopback/non-routable IPs rejected unless `--allow-private-urls` is set), and HTTP redirects are never followed
 
 **Response:** Same structure as `/api/v1/chunk`.
 
@@ -663,7 +664,7 @@ Cognition-aware chunking with multi-signal boundary scoring.
 
 - `soft_budget` / `hard_budget`: token budget controls (assembly prefers soft, never exceeds hard)
 - `language`: override auto-detection (`"en"`, `"de"`, `"fr"`, `"es"`, `"pt"`, `"it"`, `"nl"`, `"ru"`, `"zh"`, `"ja"`, `"ko"`, `"ar"`, `"tr"`, `"pl"`, `"auto"` for explicit auto-detect)
-- `reranker_path`: reranker provider for ambiguous boundary refinement — `"nvidia"`, `"cohere"`, `"cloudflare"`, `"oauth"`, `"onnx:<path>"`, or a bare path to an ONNX model directory
+- `reranker_path`: reranker provider for ambiguous boundary refinement — `"nvidia"`, `"cohere"`, `"cloudflare"`, `"oauth"`, `"onnx:<path>"`, or a bare path to an ONNX model directory. ONNX paths are subject to the server's `--onnx-model-dir` allowlist
 - `relations`: extract relation triples via LLM (requires OpenAI API key)
 - `graph`: return graph-shaped output (nodes + edges) instead of flat chunks
 - All embedding provider fields work the same as `/api/v1/semantic`

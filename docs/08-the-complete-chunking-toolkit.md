@@ -126,7 +126,7 @@ The five quality metrics, each scored 0.0 to 1.0:
 - **Intrachunk Cohesion** -- mean sentence-to-chunk cosine similarity (is each chunk about one thing?)
 - **Contextual Coherence** -- cosine similarity between adjacent chunks (smooth transitions?)
 - **Block Integrity** -- fraction of structural elements (tables, code, lists) preserved intact
-- **Reference Completeness** -- absence of orphaned pronouns and dangling entity references at boundaries
+- **Reference Completeness** -- absence of chunks that open with an orphaned pronoun or demonstrative
 
 The full quality report is available with the `--report` flag, providing side-by-side comparison of how each candidate performed. See [Article 13](13-adaptive-chunking.md) for the full pipeline description.
 

@@ -18,11 +18,11 @@ The cognitive pipeline reports five quality metrics after assembly. Understandin
 
 ### Entity Orphan Rate
 
-**What it measures:** The percentage of chunks containing entities (named or significant concepts) that appear in only one chunk across the entire output.
+**What it measures:** The percentage of chunk boundaries that cut through an entity chain — the same entities continue across the boundary, but the split strands them in separate chunks.
 
-**Why it matters:** In RAG, a query might match a chunk mentioning "Phase 3 clinical trials." If that entity only appears in one chunk, the retrieval system has no cross-reference — no way to pull in related context about what Phase 3 entails, who is conducting it, or what the results were. The entity is *orphaned*.
+**Why it matters:** In RAG, a query might match a chunk mentioning "Phase 3 clinical trials." If the boundary severed the entity chain, the related context about what Phase 3 entails, who is conducting it, or what the results were lives in the neighboring chunk that retrieval may never return. The entity is *orphaned*.
 
-**Target:** 0%. Every entity should appear in at least two chunks so that retrieval can follow the thread.
+**Target:** 0%. No boundary should sever a continuing entity chain.
 
 ### Pronoun Boundary Rate
 
@@ -34,9 +34,9 @@ The cognitive pipeline reports five quality metrics after assembly. Understandin
 
 ### Heading Attachment Rate
 
-**What it measures:** The percentage of chunks that have a heading path — that is, they know which section of the document they belong to.
+**What it measures:** The percentage of headings that stay attached to the content that follows them — no chunk boundary falls between a heading and its first content block.
 
-**Why it matters:** Heading context is metadata gold for retrieval. A chunk that knows it lives under "Architecture > Scoring" can be filtered, faceted, or boosted by section relevance. Chunks without heading context are harder to rank.
+**Why it matters:** Heading context is metadata gold for retrieval. A chunk that knows it lives under "Architecture > Scoring" can be filtered, faceted, or boosted by section relevance. A heading split from its body produces a stranded title and a chunk that starts mid-section.
 
 **Target:** 100%.
 
@@ -54,7 +54,7 @@ The cognitive pipeline reports five quality metrics after assembly. Understandin
 
 **Why it matters:** If a chunk contains "The pipeline processes" but the object "ambiguous boundaries using cross-encoders" is in the next chunk, retrieval loses the complete proposition.
 
-**Target:** 0%. (Only measured when `--relations` is enabled.)
+**Target:** 0%. (In the current pipeline this is reported as 0.0% by construction: triples are extracted per chunk after assembly, so a triple cannot span a boundary.)
 
 ## Priority Order for RAG Quality
 
