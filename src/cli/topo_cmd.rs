@@ -163,4 +163,3 @@ struct TopoChunkEntry<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     cross_references: Vec<usize>,
 }
-

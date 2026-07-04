@@ -99,4 +99,3 @@ pub fn run(args: &SplitArgs, global: &GlobalOpts) -> anyhow::Result<()> {
     global_opts::print_stats(&results, global);
     Ok(())
 }
-

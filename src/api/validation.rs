@@ -16,8 +16,7 @@ pub fn validate_outbound_urls(
 ) -> anyhow::Result<()> {
     for (field, value) in urls {
         if let Some(value) = value {
-            validate_base_url(value, allow_private)
-                .map_err(|e| anyhow::anyhow!("{field}: {e}"))?;
+            validate_base_url(value, allow_private).map_err(|e| anyhow::anyhow!("{field}: {e}"))?;
         }
     }
     Ok(())
@@ -71,10 +70,8 @@ mod tests {
     use super::*;
 
     fn test_dirs() -> (PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!(
-            "cognigraph-model-dir-test-{}",
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("cognigraph-model-dir-test-{}", std::process::id()));
         let inside = base.join("model-a");
         std::fs::create_dir_all(&inside).unwrap();
         (base, inside)

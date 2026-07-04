@@ -579,6 +579,9 @@ mod tests {
         let chunks = vec![("aaaa".to_string(), 0), ("bbbb".to_string(), 10)];
         let evals = semantic_chunks_to_evals(&chunks, 20);
         assert_eq!(evals[0].offset_end, 10, "bounded by the next chunk's start");
-        assert_eq!(evals[1].offset_end, 20, "last chunk bounded by document end");
+        assert_eq!(
+            evals[1].offset_end, 20,
+            "last chunk bounded by document end"
+        );
     }
 }

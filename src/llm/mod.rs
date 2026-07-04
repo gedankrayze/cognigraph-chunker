@@ -34,9 +34,10 @@ impl LlmConfig {
     ) -> Result<Self> {
         use crate::config::resolve_setting;
 
-        let api_key = resolve_setting(api_key, "OPENAI_API_KEY", ".env.openai").ok_or_else(
-            || anyhow::anyhow!("LLM API key not found (set OPENAI_API_KEY or --api-key)"),
-        )?;
+        let api_key =
+            resolve_setting(api_key, "OPENAI_API_KEY", ".env.openai").ok_or_else(|| {
+                anyhow::anyhow!("LLM API key not found (set OPENAI_API_KEY or --api-key)")
+            })?;
 
         let base_url = resolve_setting(base_url, "OPENAI_BASE_URL", ".env.openai")
             .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
@@ -179,4 +180,3 @@ struct ErrorResponse {
 struct ErrorDetail {
     message: String,
 }
-

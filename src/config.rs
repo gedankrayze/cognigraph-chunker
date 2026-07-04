@@ -111,7 +111,10 @@ mod tests {
 
         assert_eq!(env_file_lookup(p, "PLAIN").as_deref(), Some("value1"));
         // Quotes must be stripped — a quoted API key otherwise produces a confusing 401
-        assert_eq!(env_file_lookup(p, "DOUBLE").as_deref(), Some("quoted value"));
+        assert_eq!(
+            env_file_lookup(p, "DOUBLE").as_deref(),
+            Some("quoted value")
+        );
         assert_eq!(
             env_file_lookup(p, "SINGLE").as_deref(),
             Some("single quoted")
@@ -126,7 +129,10 @@ mod tests {
     fn test_env_file_lookup_exact_key_match() {
         let path = write_env_file("exact", "MY_OPENAI_API_KEY=wrong\nOPENAI_API_KEY=right\n");
         let p = path.to_str().unwrap();
-        assert_eq!(env_file_lookup(p, "OPENAI_API_KEY").as_deref(), Some("right"));
+        assert_eq!(
+            env_file_lookup(p, "OPENAI_API_KEY").as_deref(),
+            Some("right")
+        );
     }
 
     #[test]

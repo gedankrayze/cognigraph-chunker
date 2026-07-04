@@ -248,8 +248,7 @@ fn build_api_reranker(
         other => {
             let path = other.strip_prefix("onnx:").unwrap_or(other);
             let path = super::validation::validate_model_path(path, onnx_model_dir)?;
-            let reranker =
-                crate::embeddings::reranker::OnnxReranker::new(&path.to_string_lossy())?;
+            let reranker = crate::embeddings::reranker::OnnxReranker::new(&path.to_string_lossy())?;
             Ok(AnyReranker::Onnx(Box::new(reranker)))
         }
     }

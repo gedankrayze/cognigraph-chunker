@@ -53,9 +53,7 @@ pub async fn send_with_retry(
                 tokio::time::sleep(backoff_delay(attempt)).await;
             }
             Err(e) => {
-                return Err(
-                    anyhow::Error::new(e).context(format!("Failed to send {what} request"))
-                );
+                return Err(anyhow::Error::new(e).context(format!("Failed to send {what} request")));
             }
         }
     }
@@ -144,13 +142,18 @@ mod tests {
         let (base, requests) = spawn_status_server(vec![503, 503, 200]).await;
         let client = build_client(false).unwrap();
 
-        let (status, body) = send_with_retry(client.post(&base).json(&serde_json::json!({})), "test")
-            .await
-            .unwrap();
+        let (status, body) =
+            send_with_retry(client.post(&base).json(&serde_json::json!({})), "test")
+                .await
+                .unwrap();
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body, "response-2");
-        assert_eq!(requests.load(Ordering::SeqCst), 3, "two retries then success");
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            3,
+            "two retries then success"
+        );
     }
 
     #[tokio::test]
@@ -162,7 +165,11 @@ mod tests {
 
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body, "response-0");
-        assert_eq!(requests.load(Ordering::SeqCst), 1, "4xx must not be retried");
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            1,
+            "4xx must not be retried"
+        );
     }
 
     #[tokio::test]

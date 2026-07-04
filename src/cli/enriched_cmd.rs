@@ -187,4 +187,3 @@ struct EnrichedChunkEntry<'a> {
     category: &'a str,
     heading_path: &'a [String],
 }
-

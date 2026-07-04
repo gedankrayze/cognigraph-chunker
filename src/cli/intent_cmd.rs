@@ -233,4 +233,3 @@ struct IntentChunkEntry<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     heading_path: Vec<String>,
 }
-

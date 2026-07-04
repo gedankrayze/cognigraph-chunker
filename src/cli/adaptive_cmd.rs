@@ -257,4 +257,3 @@ fn parse_metric_weights(input: &str) -> anyhow::Result<MetricWeights> {
     }
     Ok(weights)
 }
-

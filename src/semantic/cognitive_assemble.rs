@@ -167,8 +167,7 @@ fn apply_soft_budget_pressure(
 
     for (i, signal) in signals.iter_mut().enumerate() {
         accumulated += blocks[i + 1].token_estimate;
-        let pressure =
-            (accumulated as f64 / config.soft_budget as f64 - 0.5).clamp(0.0, 1.0);
+        let pressure = (accumulated as f64 / config.soft_budget as f64 - 0.5).clamp(0.0, 1.0);
         signal.budget_pressure = pressure;
         signal.join_score -= config.weights.w_budget * pressure;
         if pressure > 0.5 {
@@ -461,8 +460,8 @@ fn build_shared_entities(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::cognitive_types::CognitiveConfig;
+    use super::*;
 
     fn make_env(index: usize, token_estimate: usize) -> BlockEnvelope {
         BlockEnvelope {
