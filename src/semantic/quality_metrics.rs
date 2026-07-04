@@ -226,7 +226,20 @@ pub async fn intrachunk_cohesion<P: EmbeddingProvider>(
         return Ok(1.0);
     }
 
-    let mut scores = Vec::new();
+    // Gather every sentence and chunk text into ONE embedding request
+    // (providers split oversized batches internally). The previous
+    // one-call-per-chunk shape was an N+1 round-trip pattern that the
+    // adaptive router multiplied by the number of candidates.
+    struct Span {
+        /// Start index of this chunk's sentences in the combined text list.
+        start: usize,
+        /// Number of sentences (the chunk text itself sits at start + count).
+        count: usize,
+    }
+
+    let mut texts: Vec<String> = Vec::new();
+    // One entry per chunk: None = trivially cohesive (fewer than 2 sentences).
+    let mut spans: Vec<Option<Span>> = Vec::with_capacity(chunks.len());
 
     for chunk in chunks {
         let sentences: Vec<String> = split_sentences(&chunk.text)
@@ -235,26 +248,37 @@ pub async fn intrachunk_cohesion<P: EmbeddingProvider>(
             .collect();
 
         if sentences.len() < 2 {
-            // Single-sentence chunk is trivially cohesive
-            scores.push(1.0);
+            spans.push(None);
             continue;
         }
 
-        let sentence_refs: Vec<&str> = sentences.iter().map(|s| s.as_str()).collect();
-        let mut texts_to_embed = sentence_refs.clone();
-        texts_to_embed.push(&chunk.text);
+        spans.push(Some(Span {
+            start: texts.len(),
+            count: sentences.len(),
+        }));
+        texts.extend(sentences);
+        texts.push(chunk.text.clone());
+    }
 
-        let all_embeddings = provider.embed(&texts_to_embed).await?;
-        if all_embeddings.len() != texts_to_embed.len() {
-            anyhow::bail!(
-                "ICC: provider returned {} embeddings, expected {}",
-                all_embeddings.len(),
-                texts_to_embed.len()
-            );
-        }
-        let (sentence_embeddings, chunk_emb_slice) = all_embeddings.split_at(sentences.len());
+    if texts.is_empty() {
+        // Every chunk is single-sentence — trivially cohesive
+        return Ok(1.0);
+    }
 
-        let chunk_emb = &chunk_emb_slice[0];
+    let refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+    let all_embeddings = provider.embed(&refs).await?;
+    if all_embeddings.len() != refs.len() {
+        anyhow::bail!(
+            "ICC: provider returned {} embeddings, expected {}",
+            all_embeddings.len(),
+            refs.len()
+        );
+    }
+
+    let mut scores = Vec::new();
+    for span in spans.iter().flatten() {
+        let sentence_embeddings = &all_embeddings[span.start..span.start + span.count];
+        let chunk_emb = &all_embeddings[span.start + span.count];
         if chunk_emb.is_empty() {
             continue;
         }
@@ -264,15 +288,18 @@ pub async fn intrachunk_cohesion<P: EmbeddingProvider>(
             .iter()
             .map(|e| cosine_similarity(e, chunk_emb))
             .sum::<f64>()
-            / sentences.len() as f64;
+            / span.count as f64;
 
         scores.push(mean_sim);
     }
 
-    if scores.is_empty() {
+    // Trivially-cohesive chunks contribute 1.0, preserving prior semantics
+    let trivial = spans.iter().filter(|s| s.is_none()).count();
+    let total = scores.len() + trivial;
+    if total == 0 {
         return Ok(1.0);
     }
-    Ok(scores.iter().sum::<f64>() / scores.len() as f64)
+    Ok((scores.iter().sum::<f64>() + trivial as f64) / total as f64)
 }
 
 // ── DCC: Contextual Coherence ────────────────────────────────────────────────
@@ -362,6 +389,40 @@ mod tests {
             offset_start: start,
             offset_end: start + text.len(),
         }
+    }
+
+    /// Mock provider that counts embed() calls and returns identical unit vectors.
+    struct CountingProvider(std::sync::atomic::AtomicUsize);
+
+    impl crate::embeddings::EmbeddingProvider for CountingProvider {
+        async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f64>>> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(texts.iter().map(|_| vec![1.0, 0.0]).collect())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_icc_batches_into_single_embed_call() {
+        // 3 multi-sentence chunks previously made one provider round trip
+        // per chunk (N+1 pattern); everything must go in one batch.
+        let chunks = vec![
+            chunk("First sentence here. Second sentence here.", 0),
+            chunk("Third sentence now. Fourth sentence now.", 100),
+            chunk("Fifth one appears. Sixth one appears.", 200),
+        ];
+        let provider = CountingProvider(Default::default());
+
+        let icc = intrachunk_cohesion(&chunks, &provider).await.unwrap();
+
+        assert!(
+            (icc - 1.0).abs() < 1e-9,
+            "identical embeddings → cohesion 1.0, got {icc}"
+        );
+        assert_eq!(
+            provider.0.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "ICC must batch all sentences and chunks into one embed call"
+        );
     }
 
     // ── cosine_similarity ─────────────────────────────────────────────────────

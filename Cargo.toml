@@ -65,6 +65,9 @@ url = "2"
 # Constant-time comparison for API key auth
 subtle = "2"
 
+# Bounded-concurrency streams for LLM/reranker fan-out
+futures = "0.3"
+
 # Error handling
 anyhow = "1.0"
 

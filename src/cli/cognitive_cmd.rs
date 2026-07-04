@@ -171,10 +171,19 @@ async fn run_pipeline<P: EmbeddingProvider>(
         )?;
         let llm_client = cognigraph_chunker::llm::CompletionClient::new(llm_config)?;
 
-        for chunk in &mut result.chunks {
-            match cognigraph_chunker::llm::relations::extract_relations(&llm_client, &chunk.text)
-                .await
-            {
+        // Bounded-concurrency fan-out: N serial round trips otherwise
+        // dominate wall-clock time on multi-chunk documents.
+        use futures::stream::{self, StreamExt};
+        let outcomes: Vec<_> = stream::iter(result.chunks.iter())
+            .map(|chunk| {
+                cognigraph_chunker::llm::relations::extract_relations(&llm_client, &chunk.text)
+            })
+            .buffered(8)
+            .collect()
+            .await;
+
+        for (chunk, outcome) in result.chunks.iter_mut().zip(outcomes) {
+            match outcome {
                 Ok(rels) => {
                     global.detail(&format!(
                         "[relations] chunk {}: {} triples",
@@ -204,10 +213,17 @@ async fn run_pipeline<P: EmbeddingProvider>(
         )?;
         let llm_client = cognigraph_chunker::llm::CompletionClient::new(llm_config)?;
 
-        for chunk in &mut result.chunks {
-            match cognigraph_chunker::llm::synopsis::generate_synopsis(&llm_client, &chunk.text)
-                .await
-            {
+        use futures::stream::{self, StreamExt};
+        let outcomes: Vec<_> = stream::iter(result.chunks.iter())
+            .map(|chunk| {
+                cognigraph_chunker::llm::synopsis::generate_synopsis(&llm_client, &chunk.text)
+            })
+            .buffered(8)
+            .collect()
+            .await;
+
+        for (chunk, outcome) in result.chunks.iter_mut().zip(outcomes) {
+            match outcome {
                 Ok(synopsis) => {
                     global.detail(&format!(
                         "[synopsis] chunk {}: {}",

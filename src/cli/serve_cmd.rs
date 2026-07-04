@@ -71,6 +71,7 @@ pub async fn run(args: &ServeArgs) -> anyhow::Result<()> {
         allow_private_urls: args.allow_private_urls,
         cors_origins: args.cors_origins.clone(),
         onnx_model_dir: args.onnx_model_dir.clone(),
+        ..AppState::default()
     };
 
     let app = api::router(state);

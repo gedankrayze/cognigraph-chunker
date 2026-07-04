@@ -56,24 +56,45 @@ pub async fn refine_boundaries<R: RerankerProvider>(
     reranker_weight: f64,
     weights: &CognitiveWeights,
 ) -> anyhow::Result<usize> {
+    use futures::stream::{FuturesOrdered, StreamExt};
+
     if ambiguous_indices.is_empty() {
         return Ok(0);
     }
 
+    /// Concurrent rerank calls per refinement group — each boundary is an
+    /// independent HTTP round trip (or blocking-pool inference).
+    const RERANK_CONCURRENCY: usize = 4;
+
+    // Score boundaries in concurrent groups, then apply the updates
+    // sequentially (signals can't be mutated from within the futures).
+    // Futures are built in a plain loop rather than a stream::map closure:
+    // async-fn-in-trait futures inside closures trip HRTB inference.
+    let valid: Vec<usize> = ambiguous_indices
+        .iter()
+        .copied()
+        .filter(|&idx| idx < signals.len() && idx + 1 < blocks.len())
+        .collect();
+
+    let mut scored: Vec<(usize, f64)> = Vec::with_capacity(valid.len());
+    for group in valid.chunks(RERANK_CONCURRENCY) {
+        let mut futures = FuturesOrdered::new();
+        for &idx in group {
+            futures.push_back(async move {
+                let text_a = blocks[idx].text.as_str();
+                let text_b = blocks[idx + 1].text.as_str();
+                let scores = reranker.rerank(text_a, &[text_b]).await?;
+                Ok::<_, anyhow::Error>((idx, scores.first().copied().unwrap_or(0.5)))
+            });
+        }
+        while let Some(result) = futures.next().await {
+            scored.push(result?);
+        }
+    }
+
     let mut refined_count = 0;
 
-    for &idx in ambiguous_indices {
-        if idx >= signals.len() || idx + 1 >= blocks.len() {
-            continue;
-        }
-
-        let text_a = blocks[idx].text.as_str();
-        let text_b = blocks[idx + 1].text.as_str();
-
-        // Get reranker score for this pair
-        let scores = reranker.rerank(text_a, &[text_b]).await?;
-        let reranker_score = scores.first().copied().unwrap_or(0.5);
-
+    for (idx, reranker_score) in scored {
         // Blend reranker score with original semantic similarity
         let original_sim = signals[idx].semantic_similarity;
         let blended_sim = original_sim * (1.0 - reranker_weight) + reranker_score * reranker_weight;
@@ -194,6 +215,57 @@ mod tests {
             continuation_flags: Default::default(),
             token_estimate: 2,
         }
+    }
+
+    struct SlowCountingReranker {
+        current: std::sync::atomic::AtomicUsize,
+        max_seen: std::sync::atomic::AtomicUsize,
+    }
+
+    impl RerankerProvider for SlowCountingReranker {
+        async fn rerank(&self, _query: &str, documents: &[&str]) -> anyhow::Result<Vec<f64>> {
+            use std::sync::atomic::Ordering;
+            let now = self.current.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_seen.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            self.current.fetch_sub(1, Ordering::SeqCst);
+            Ok(vec![0.9; documents.len()])
+        }
+        fn model_name(&self) -> &str {
+            "slow-counting"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_refine_scores_boundaries_concurrently() {
+        // 6 ambiguous boundaries against a reranker with 50ms latency:
+        // sequential scoring wastes 6 round trips; refinement must overlap
+        // the rerank calls.
+        let blocks: Vec<BlockEnvelope> = (0..7).map(make_env).collect();
+        let mut signals: Vec<BoundarySignal> = (0..6).map(|i| make_signal(i, 0.5)).collect();
+        let weights = CognitiveWeights::default();
+        let reranker = SlowCountingReranker {
+            current: Default::default(),
+            max_seen: Default::default(),
+        };
+
+        let refined = refine_boundaries(
+            &blocks,
+            &mut signals,
+            &[0, 1, 2, 3, 4, 5],
+            &reranker,
+            0.7,
+            &weights,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(refined, 6);
+        assert!(
+            reranker.max_seen.load(std::sync::atomic::Ordering::SeqCst) >= 2,
+            "rerank calls must overlap, max in-flight was {}",
+            reranker.max_seen.load(std::sync::atomic::Ordering::SeqCst)
+        );
     }
 
     #[tokio::test]

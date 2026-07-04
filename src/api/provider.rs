@@ -1,22 +1,41 @@
 //! Shared provider construction for API handlers.
 use super::AppState;
+use crate::embeddings::onnx::OnnxProvider;
 use crate::embeddings::{AnyProvider, EmbedProviderOpts, ProviderType};
 
 /// Build the embedding provider for an API request. ONNX model paths are
-/// validated against the server's --onnx-model-dir allowlist first.
+/// validated against the server's --onnx-model-dir allowlist first, and
+/// loaded models are cached in AppState (re-parsing the model per request
+/// dominated ONNX-backed request latency).
 pub async fn build_api_provider(
     opts: &EmbedProviderOpts,
     state: &AppState,
 ) -> anyhow::Result<AnyProvider> {
-    let mut opts = opts.clone();
     if matches!(opts.provider, ProviderType::Onnx) {
         let requested = opts
             .model_path
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("model_path is required for onnx provider"))?;
         let validated = super::validation::validate_model_path(requested, &state.onnx_model_dir)?;
-        opts.model_path = Some(validated.to_string_lossy().into_owned());
+
+        if let Some(cached) = state.onnx_providers.lock().unwrap().get(&validated) {
+            return Ok(AnyProvider::Onnx(Box::new(cached.clone())));
+        }
+
+        // Load outside the lock (model parsing is slow); racing requests may
+        // both load, the second insert wins harmlessly.
+        let path_str = validated.to_string_lossy().into_owned();
+        let provider = tokio::task::spawn_blocking(move || OnnxProvider::new(&path_str))
+            .await
+            .map_err(|e| anyhow::anyhow!("ONNX model load task panicked: {e}"))??;
+        state
+            .onnx_providers
+            .lock()
+            .unwrap()
+            .insert(validated, provider.clone());
+        return Ok(AnyProvider::Onnx(Box::new(provider)));
     }
+
     opts.build_provider().await
 }
 

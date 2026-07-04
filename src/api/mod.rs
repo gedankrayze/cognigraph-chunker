@@ -39,7 +39,7 @@ use tower_http::timeout::TimeoutLayer;
 const API_BODY_LIMIT: usize = 10 * 1024 * 1024;
 
 /// Shared application state.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AppState {
     /// Optional API key for bearer auth.
     pub api_key: Option<String>,
@@ -50,6 +50,22 @@ pub struct AppState {
     /// Directory that client-supplied ONNX model paths must resolve into.
     /// `None` disables model loading via the API entirely.
     pub onnx_model_dir: Option<std::path::PathBuf>,
+    /// Loaded ONNX embedding providers, keyed by canonical model directory.
+    /// Sessions are expensive to load; clones share the underlying session.
+    pub onnx_providers: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<std::path::PathBuf, crate::embeddings::onnx::OnnxProvider>,
+        >,
+    >,
+    /// Loaded ONNX rerankers, keyed by canonical model directory.
+    pub onnx_rerankers: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                std::path::PathBuf,
+                crate::embeddings::reranker::OnnxReranker,
+            >,
+        >,
+    >,
 }
 
 /// Build the Axum router with all API routes.

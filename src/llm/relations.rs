@@ -89,19 +89,94 @@ pub async fn extract_relations(
     Ok(parsed.relations)
 }
 
-/// Extract relations for multiple chunks in sequence.
+/// Maximum concurrent LLM requests for per-chunk extraction.
+pub(crate) const LLM_CONCURRENCY: usize = 8;
+
+/// Extract relations for multiple chunks concurrently (bounded).
 ///
 /// Returns one `Vec<RelationTriple>` per chunk, in the same order.
+/// Fails on the first extraction error.
 pub async fn extract_relations_batch(
     client: &CompletionClient,
     chunks: &[&str],
 ) -> Result<Vec<Vec<RelationTriple>>> {
-    let mut results = Vec::with_capacity(chunks.len());
+    use futures::stream::{self, StreamExt, TryStreamExt};
 
-    for chunk in chunks {
-        let rels = extract_relations(client, chunk).await?;
-        results.push(rels);
+    stream::iter(chunks.iter())
+        .map(|chunk| extract_relations(client, chunk))
+        .buffered(LLM_CONCURRENCY)
+        .try_collect()
+        .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::LlmConfig;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Mock OpenAI-compatible chat endpoint: waits 100ms, then returns one
+    /// relation triple. Counts requests.
+    async fn spawn_llm_server() -> (String, Arc<AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let server_counter = counter.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                server_counter.fetch_add(1, Ordering::SeqCst);
+                // Handle each connection concurrently so the server itself
+                // is not the serialization point.
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 65536];
+                    let _ = socket.read(&mut buf).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    let content = r#"{\"relations\":[{\"subject\":\"s\",\"predicate\":\"p\",\"object\":\"o\"}]}"#;
+                    let body =
+                        format!(r#"{{"choices":[{{"message":{{"content":"{content}"}}}}]}}"#);
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        (format!("http://{addr}"), counter)
     }
 
-    Ok(results)
+    #[tokio::test]
+    async fn test_batch_extraction_runs_concurrently() {
+        let (base_url, requests) = spawn_llm_server().await;
+        let client = CompletionClient::new(LlmConfig {
+            api_key: "test-key".into(),
+            base_url,
+            model: "test-model".into(),
+        })
+        .unwrap();
+
+        let chunk = "This chunk is long enough to trigger a real extraction call.";
+        let chunks = vec![chunk; 6];
+
+        let start = std::time::Instant::now();
+        let results = extract_relations_batch(&client, &chunks).await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(results.len(), 6, "one result per chunk, in order");
+        assert!(results.iter().all(|r| r.len() == 1));
+        assert_eq!(requests.load(Ordering::SeqCst), 6);
+        // 6 requests at 100ms server latency each: sequential ≈ 600ms,
+        // concurrent (buffered) well under half that.
+        assert!(
+            elapsed < std::time::Duration::from_millis(400),
+            "batch extraction must overlap requests, took {elapsed:?}"
+        );
+    }
 }

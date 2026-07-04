@@ -132,12 +132,7 @@ mod tests {
         // llm_base_url is user-supplied and must go through the same SSRF
         // validation as base_url — otherwise the server can be steered into
         // POSTing to cloud metadata endpoints or internal services.
-        let state = Arc::new(AppState {
-            api_key: None,
-            allow_private_urls: false,
-            cors_origins: vec![],
-            onnx_model_dir: None,
-        });
+        let state = Arc::new(AppState::default());
         let req = TopoRequest {
             text: String::new(),
             topo_model: None,

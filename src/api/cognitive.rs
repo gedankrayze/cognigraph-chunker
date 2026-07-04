@@ -159,7 +159,7 @@ pub async fn cognitive_handler(
         &config,
         req.no_markdown,
         &req.reranker_path,
-        &state.onnx_model_dir,
+        &state,
     )
     .await?;
 
@@ -186,11 +186,50 @@ async fn enrich_with_relations(
     result: &mut CognitiveResult,
     client: &CompletionClient,
 ) -> anyhow::Result<()> {
-    for chunk in &mut result.chunks {
-        if let Ok(relations) = relations::extract_relations(client, &chunk.text).await {
-            chunk.dominant_relations = relations;
+    use futures::stream::{FuturesOrdered, StreamExt};
+
+    // Bounded-concurrency fan-out instead of N serial round trips.
+    // Futures are built in plain loops (stream::map closures around
+    // async-fn futures trip HRTB inference in the axum handler).
+    let texts: Vec<&str> = result.chunks.iter().map(|c| c.text.as_str()).collect();
+    let mut outcomes = Vec::with_capacity(texts.len());
+    for group in texts.chunks(8) {
+        let mut futures = FuturesOrdered::new();
+        for &text in group {
+            futures.push_back(relations::extract_relations(client, text));
+        }
+        while let Some(outcome) = futures.next().await {
+            outcomes.push(outcome);
         }
     }
+
+    let total = outcomes.len();
+    let mut failures = 0usize;
+    let mut first_error: Option<anyhow::Error> = None;
+
+    for (chunk, outcome) in result.chunks.iter_mut().zip(outcomes) {
+        match outcome {
+            Ok(relations) => chunk.dominant_relations = relations,
+            Err(e) => {
+                failures += 1;
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+
+    // Every chunk failing means a configuration problem (bad key, wrong
+    // endpoint) — the client asked for relations and must not get a 200
+    // with silently empty results. Partial failures are logged instead.
+    if failures == total
+        && total > 0
+        && let Some(e) = first_error
+    {
+        return Err(e.context("relation extraction failed for every chunk"));
+    }
+    if failures > 0 {
+        eprintln!("[api] relation extraction failed for {failures}/{total} chunks");
+    }
+
     Ok(())
 }
 
@@ -200,10 +239,10 @@ async fn run_cognitive<P: EmbeddingProvider>(
     config: &CognitiveConfig,
     no_markdown: bool,
     reranker_spec: &Option<String>,
-    onnx_model_dir: &Option<std::path::PathBuf>,
+    state: &AppState,
 ) -> anyhow::Result<CognitiveResult> {
     if let Some(spec) = reranker_spec {
-        let reranker = build_api_reranker(spec, onnx_model_dir)?;
+        let reranker = build_api_reranker(spec, state).await?;
         if no_markdown {
             crate::semantic::cognitive_chunk_plain_with_reranker(text, provider, config, &reranker)
                 .await
@@ -221,10 +260,10 @@ async fn run_cognitive<P: EmbeddingProvider>(
 ///
 /// Accepted: `"nvidia"`, `"cohere"`, `"cloudflare"`, `"oauth"`,
 /// `"onnx:<path>"`, or a bare path. ONNX paths are validated against the
-/// server's `--onnx-model-dir` allowlist.
-fn build_api_reranker(
+/// server's `--onnx-model-dir` allowlist and loaded models are cached.
+async fn build_api_reranker(
     spec: &str,
-    onnx_model_dir: &Option<std::path::PathBuf>,
+    state: &AppState,
 ) -> anyhow::Result<crate::embeddings::reranker::AnyReranker> {
     use crate::embeddings::reranker::AnyReranker;
 
@@ -247,8 +286,23 @@ fn build_api_reranker(
         }
         other => {
             let path = other.strip_prefix("onnx:").unwrap_or(other);
-            let path = super::validation::validate_model_path(path, onnx_model_dir)?;
-            let reranker = crate::embeddings::reranker::OnnxReranker::new(&path.to_string_lossy())?;
+            let path = super::validation::validate_model_path(path, &state.onnx_model_dir)?;
+
+            if let Some(cached) = state.onnx_rerankers.lock().unwrap().get(&path) {
+                return Ok(AnyReranker::Onnx(Box::new(cached.clone())));
+            }
+
+            let path_str = path.to_string_lossy().into_owned();
+            let reranker = tokio::task::spawn_blocking(move || {
+                crate::embeddings::reranker::OnnxReranker::new(&path_str)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("ONNX reranker load task panicked: {e}"))??;
+            state
+                .onnx_rerankers
+                .lock()
+                .unwrap()
+                .insert(path, reranker.clone());
             Ok(AnyReranker::Onnx(Box::new(reranker)))
         }
     }
