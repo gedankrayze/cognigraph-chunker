@@ -53,9 +53,32 @@ impl Default for AdaptiveConfig {
     }
 }
 
-/// Estimate token count using whitespace splitting.
+/// Estimate token count (shared byte-based estimator, ~4 bytes per token).
 fn token_estimate(text: &str) -> usize {
-    text.split_whitespace().count()
+    super::estimate_tokens(text)
+}
+
+/// Convert semantic chunks `(text, start_offset)` into evaluation chunks.
+///
+/// Semantic chunk text is block text concatenated without the inter-block
+/// whitespace, so `offset + text.len()` undercounts the true end and breaks
+/// block-integrity scoring. Chunks are contiguous over blocks, so the next
+/// chunk's start (or the document end for the last chunk) bounds the range.
+fn semantic_chunks_to_evals(chunks: &[(String, usize)], doc_len: usize) -> Vec<ChunkForEval> {
+    (0..chunks.len())
+        .map(|i| {
+            let (text, offset) = &chunks[i];
+            let offset_end = match chunks.get(i + 1) {
+                Some((_, next_offset)) => *next_offset,
+                None => doc_len,
+            };
+            ChunkForEval {
+                text: text.clone(),
+                offset_start: *offset,
+                offset_end,
+            }
+        })
+        .collect()
 }
 
 /// Count distinct heading levels in a document (using split_blocks).
@@ -300,15 +323,7 @@ async fn run_candidate<P: EmbeddingProvider>(
                 ..SemanticConfig::default()
             };
             let result = semantic_chunk(text, provider, &sem_config).await?;
-            let evals: Vec<ChunkForEval> = result
-                .chunks
-                .iter()
-                .map(|(chunk_text, offset)| ChunkForEval {
-                    text: chunk_text.clone(),
-                    offset_start: *offset,
-                    offset_end: offset + chunk_text.len(),
-                })
-                .collect();
+            let evals = semantic_chunks_to_evals(&result.chunks, text.len());
             let json_chunks: Vec<serde_json::Value> = result
                 .chunks
                 .iter()
@@ -555,5 +570,15 @@ mod tests {
 
         let single = "# Only one level\n\nContent.";
         assert_eq!(count_heading_levels(single), 1);
+    }
+
+    #[test]
+    fn test_semantic_chunks_to_evals_offsets_span_gaps() {
+        // Chunk texts omit inter-block whitespace: chunk 0 is 4 bytes of text
+        // but the next chunk starts at 10. offset_end must not undercount.
+        let chunks = vec![("aaaa".to_string(), 0), ("bbbb".to_string(), 10)];
+        let evals = semantic_chunks_to_evals(&chunks, 20);
+        assert_eq!(evals[0].offset_end, 10, "bounded by the next chunk's start");
+        assert_eq!(evals[1].offset_end, 20, "last chunk bounded by document end");
     }
 }

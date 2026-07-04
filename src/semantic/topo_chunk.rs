@@ -69,14 +69,10 @@ pub async fn topo_chunk(
 
     // Step 4: Call Inspector Agent
     let sir_json = serde_json::to_string_pretty(&sir)?;
-    // Truncate if > 100k chars to fit LLM context
-    let sir_for_llm = if sir_json.len() > 100_000 {
-        sir_json[..100_000].to_string()
-    } else {
-        sir_json.clone()
-    };
+    // Truncate if > 100k bytes to fit LLM context
+    let sir_for_llm = sir_json_for_llm(&sir_json, 100_000);
 
-    let inspector_result = inspect_sir(llm_client, &sir_for_llm).await?;
+    let inspector_result = inspect_sir(llm_client, sir_for_llm).await?;
 
     // Build classification map
     let mut classifications: Vec<SectionClassification> = Vec::new();
@@ -101,7 +97,7 @@ pub async fn topo_chunk(
     let inspector_json = serde_json::to_string_pretty(&inspector_result.classifications)?;
 
     let refiner_result =
-        refine_partition(llm_client, &inspector_json, &sir_for_llm, &splittable_texts).await?;
+        refine_partition(llm_client, &inspector_json, sir_for_llm, &splittable_texts).await?;
 
     // Step 6: Assembly — map partition back to text spans
     let chunks = assemble_chunks(
@@ -292,6 +288,20 @@ fn preview_text(blocks: &[Block<'_>], start: usize, end: usize) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     truncate(&combined, 200)
+}
+
+/// Truncate the serialized SIR to at most `max_bytes` for the LLM prompt,
+/// backing up to a UTF-8 character boundary (`serde_json` does not escape
+/// non-ASCII, so a fixed byte index can land mid-codepoint and panic).
+fn sir_json_for_llm(sir_json: &str, max_bytes: usize) -> &str {
+    if sir_json.len() <= max_bytes {
+        return sir_json;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !sir_json.is_char_boundary(end) {
+        end -= 1;
+    }
+    &sir_json[..end]
 }
 
 /// Truncate a string to max_len characters.
@@ -544,5 +554,18 @@ Another paragraph here.
         let first_only = estimate_tokens_range(&blocks, 0, 1);
         // 53 chars -> ceil(53/4) = 14
         assert_eq!(first_only, 14);
+    }
+
+    #[test]
+    fn test_sir_json_for_llm_respects_char_boundaries() {
+        // 3-byte chars: 100_000 is not a char boundary (100_000 % 3 == 1),
+        // so truncation must back up instead of panicking.
+        let s = "日".repeat(40_000); // 120_000 bytes
+        let truncated = sir_json_for_llm(&s, 100_000);
+        assert!(truncated.len() <= 100_000);
+        assert_eq!(truncated.len(), 99_999, "should back up to a boundary");
+
+        // Short input passes through untouched
+        assert_eq!(sir_json_for_llm("short", 100_000), "short");
     }
 }

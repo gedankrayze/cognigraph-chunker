@@ -93,9 +93,9 @@ impl Default for MetricConfig {
 
 // ── Metric implementations ────────────────────────────────────────────────────
 
-/// Estimate token count by whitespace-splitting the text.
+/// Estimate token count (shared byte-based estimator, ~4 bytes per token).
 fn token_estimate(text: &str) -> usize {
-    text.split_whitespace().count()
+    super::estimate_tokens(text)
 }
 
 /// Compute cosine similarity between two equal-length vectors.
@@ -396,6 +396,19 @@ mod tests {
     }
 
     // ── Size Compliance ───────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sc_cjk_text_compliant() {
+        // 400 CJK chars ≈ 1200 bytes ≈ 300 tokens — within [256, 768].
+        // A whitespace-based estimator sees ~1 token and wrongly fails compliance.
+        let text = "日".repeat(400);
+        let chunks = vec![chunk(&text, 0)];
+        let sc = size_compliance(&chunks, 512, 768);
+        assert!(
+            (sc - 1.0).abs() < 1e-9,
+            "CJK chunk of ~300 tokens should be size-compliant, got {sc}"
+        );
+    }
 
     #[test]
     fn test_sc_all_compliant() {

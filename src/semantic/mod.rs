@@ -282,6 +282,15 @@ async fn run_pipeline<P: EmbeddingProvider>(
     })
 }
 
+/// Estimate token count from byte length (~4 bytes per token).
+///
+/// Shared across all chunking pipelines so that budget enforcement and
+/// quality metrics agree on what a "token" is. Byte-based estimation stays
+/// reasonable for CJK and other scripts where whitespace counting fails.
+pub fn estimate_tokens(text: &str) -> usize {
+    text.len().div_ceil(4)
+}
+
 /// Clamp a window size to be odd and <= data_len, minimum 3.
 fn clamp_odd_window(window: usize, data_len: usize) -> usize {
     let w = window.min(data_len);
@@ -500,13 +509,21 @@ async fn run_cognitive_pipeline<P: EmbeddingProvider, R: RerankerProvider>(
     };
 
     // Step 5: Score boundaries using cognitive signals + smoothed similarity
-    let mut signals = score_boundaries(&enriched, &smoothed, &config.weights, config.soft_budget);
+    let mut signals = score_boundaries(&enriched, &smoothed, &config.weights);
 
     // Step 5b: Rerank ambiguous boundaries (if reranker provided)
     if let Some(reranker) = reranker {
         let ambiguous = find_ambiguous_boundaries(&signals, 0.5);
         if !ambiguous.is_empty() {
-            refine_boundaries(&enriched, &mut signals, &ambiguous, reranker, 0.7).await?;
+            refine_boundaries(
+                &enriched,
+                &mut signals,
+                &ambiguous,
+                reranker,
+                0.7,
+                &config.weights,
+            )
+            .await?;
         }
     }
 

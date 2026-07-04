@@ -5,7 +5,7 @@
 //! This avoids O(n) expensive inference calls — typically only 10–20%
 //! of boundaries are ambiguous.
 
-use super::cognitive_types::{BlockEnvelope, BoundarySignal};
+use super::cognitive_types::{BlockEnvelope, BoundarySignal, CognitiveWeights};
 use crate::embeddings::reranker::RerankerProvider;
 
 /// Identify ambiguous boundary indices.
@@ -46,12 +46,15 @@ pub fn find_ambiguous_boundaries(signals: &[BoundarySignal], band_width: f64) ->
 ///
 /// `reranker_weight` controls how much the reranker overrides the
 /// original score (0.0 = no effect, 1.0 = full replacement).
+/// `weights` are the scoring weights used to build the join scores; the
+/// similarity delta must re-enter the join score through them.
 pub async fn refine_boundaries<R: RerankerProvider>(
     blocks: &[BlockEnvelope],
     signals: &mut [BoundarySignal],
     ambiguous_indices: &[usize],
     reranker: &R,
     reranker_weight: f64,
+    weights: &CognitiveWeights,
 ) -> anyhow::Result<usize> {
     if ambiguous_indices.is_empty() {
         return Ok(0);
@@ -75,11 +78,14 @@ pub async fn refine_boundaries<R: RerankerProvider>(
         let original_sim = signals[idx].semantic_similarity;
         let blended_sim = original_sim * (1.0 - reranker_weight) + reranker_score * reranker_weight;
 
-        // Update the signal with refined scores
+        // Update the signal with refined scores. Similarity enters the join
+        // score twice — +w_sem * sim and -w_shift * (1 - sim) — so a
+        // similarity delta moves the join score by (w_sem + w_shift) * delta.
         let old_join = signals[idx].join_score;
         let sim_delta = blended_sim - original_sim;
         signals[idx].semantic_similarity = blended_sim;
-        signals[idx].join_score += sim_delta;
+        signals[idx].topic_shift_penalty = 1.0 - blended_sim;
+        signals[idx].join_score += (weights.w_sem + weights.w_shift) * sim_delta;
         signals[idx].reasons.push(format!(
             "reranked: {old_join:.3} → {:.3}",
             signals[idx].join_score
@@ -161,5 +167,62 @@ mod tests {
     fn test_find_ambiguous_empty() {
         let ambiguous = find_ambiguous_boundaries(&[], 0.5);
         assert!(ambiguous.is_empty());
+    }
+
+    struct FixedReranker(f64);
+
+    impl RerankerProvider for FixedReranker {
+        async fn rerank(&self, _query: &str, documents: &[&str]) -> anyhow::Result<Vec<f64>> {
+            Ok(vec![self.0; documents.len()])
+        }
+        fn model_name(&self) -> &str {
+            "fixed"
+        }
+    }
+
+    fn make_env(index: usize) -> BlockEnvelope {
+        BlockEnvelope {
+            text: format!("Block {index}."),
+            offset_start: index * 10,
+            offset_end: index * 10 + 8,
+            block_type: crate::semantic::blocks::BlockKind::Sentence,
+            heading_path: vec![],
+            embedding: None,
+            entities: vec![],
+            noun_phrases: vec![],
+            discourse_markers: vec![],
+            continuation_flags: Default::default(),
+            token_estimate: 2,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_refine_applies_weighted_similarity_delta() {
+        // Reranker says similarity 1.0 with full weight: delta = 0.5.
+        // Similarity affects the join score with derivative w_sem + w_shift,
+        // so join must move by (0.30 + 0.15) * 0.5 = 0.225, not by 0.5.
+        let blocks = vec![make_env(0), make_env(1)];
+        let mut signals = vec![make_signal(0, 0.5)];
+        let weights = CognitiveWeights::default();
+        let reranker = FixedReranker(1.0);
+
+        refine_boundaries(&blocks, &mut signals, &[0], &reranker, 1.0, &weights)
+            .await
+            .unwrap();
+
+        assert!(
+            (signals[0].semantic_similarity - 1.0).abs() < 1e-9,
+            "similarity should be fully replaced"
+        );
+        assert!(
+            (signals[0].join_score - 0.725).abs() < 1e-9,
+            "join score must move by (w_sem + w_shift) * delta, got {}",
+            signals[0].join_score
+        );
+        assert!(
+            signals[0].topic_shift_penalty.abs() < 1e-9,
+            "topic shift penalty must stay consistent with the new similarity, got {}",
+            signals[0].topic_shift_penalty
+        );
     }
 }

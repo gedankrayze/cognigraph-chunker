@@ -337,9 +337,9 @@ fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     dot / denom
 }
 
-/// Estimate token count using whitespace splitting (fast approximation).
+/// Estimate token count (shared byte-based estimator, ~4 bytes per token).
 fn estimate_tokens(text: &str) -> usize {
-    text.split_whitespace().count()
+    super::estimate_tokens(text)
 }
 
 #[cfg(test)]
@@ -414,10 +414,12 @@ mod tests {
 
     #[test]
     fn test_estimate_tokens() {
-        assert_eq!(estimate_tokens("hello world"), 2);
-        assert_eq!(estimate_tokens("  one  two  three  "), 3);
+        // Byte-based: ~4 bytes per token, rounded up
+        assert_eq!(estimate_tokens("hello world"), 3);
         assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("single"), 1);
+        assert_eq!(estimate_tokens("single"), 2);
+        // CJK text must not estimate to ~0 tokens
+        assert_eq!(estimate_tokens("日本語のテキスト"), 6);
     }
 
     #[test]

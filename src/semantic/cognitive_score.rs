@@ -14,11 +14,14 @@ use super::enrichment::heading_context::heading_continuity;
 ///
 /// Returns one `BoundarySignal` per boundary (n-1 for n blocks).
 /// `similarities` is the raw semantic similarity curve from embedding comparison.
+///
+/// Budget pressure is NOT applied here: it depends on where breaks fall,
+/// which is unknown until assembly. The assembler applies it after the
+/// initial valley pass (see `cognitive_assemble`).
 pub fn score_boundaries(
     blocks: &[BlockEnvelope],
     similarities: &[f64],
     weights: &CognitiveWeights,
-    soft_budget: usize,
 ) -> Vec<BoundarySignal> {
     let n = blocks.len();
     if n < 2 {
@@ -26,7 +29,6 @@ pub fn score_boundaries(
     }
 
     let mut signals = Vec::with_capacity(n - 1);
-    let mut accumulated_tokens: usize = blocks[0].token_estimate;
 
     for i in 0..n - 1 {
         let a = &blocks[i];
@@ -58,17 +60,10 @@ pub fn score_boundaries(
         // Orphan risk: splitting would leave dangling references
         let orphan = orphan_risk_score(a, b);
 
-        // Budget pressure: increases as accumulated tokens approach soft budget
-        accumulated_tokens += b.token_estimate;
-        let budget_press = if soft_budget > 0 {
-            (accumulated_tokens as f64 / soft_budget as f64 - 0.5).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-
         // Weighted join score
         // Positive terms = reasons to keep together (join)
         // Negative terms = reasons to split (break)
+        // (budget pressure is applied later during assembly)
         let join_score = weights.w_sem * semantic_sim
             + weights.w_ent * entity_cont
             + weights.w_rel * relation_cont
@@ -76,8 +71,7 @@ pub fn score_boundaries(
             + weights.w_head * heading_cont
             + weights.w_struct * struct_affinity
             + weights.w_orphan * orphan // high orphan risk = discourage breaking
-            - weights.w_shift * topic_shift
-            - weights.w_budget * budget_press;
+            - weights.w_shift * topic_shift;
 
         // Collect reasons
         let mut reasons = Vec::new();
@@ -99,9 +93,6 @@ pub fn score_boundaries(
         if topic_shift > 0.6 {
             reasons.push(format!("topic shift ({topic_shift:.2})"));
         }
-        if budget_press > 0.5 {
-            reasons.push(format!("budget pressure ({accumulated_tokens} tokens)"));
-        }
 
         signals.push(BoundarySignal {
             index: i,
@@ -113,14 +104,11 @@ pub fn score_boundaries(
             structural_affinity: struct_affinity,
             topic_shift_penalty: topic_shift,
             orphan_risk: orphan,
-            budget_pressure: budget_press,
+            budget_pressure: 0.0, // applied by the assembler once breaks are known
             join_score,
             is_break: false, // Will be determined by assembler
             reasons,
         });
-
-        // Reset accumulator on break (will be updated by assembler)
-        // For now, accumulate linearly — assembler will use final break decisions.
     }
 
     signals
@@ -245,7 +233,7 @@ mod tests {
             ),
         ];
         let sims = vec![0.5];
-        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default(), 512);
+        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default());
         assert_eq!(signals.len(), 1);
         // High join score: heading+content affinity + heading continuity + orphan risk penalty
         assert!(
@@ -269,7 +257,7 @@ mod tests {
             ),
         ];
         let sims = vec![0.7];
-        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default(), 512);
+        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default());
         assert!(
             signals[0].orphan_risk > 0.5,
             "Pronoun start should raise orphan risk"
@@ -291,7 +279,7 @@ mod tests {
             ),
         ];
         let sims = vec![0.1]; // Very low similarity
-        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default(), 512);
+        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default());
         assert!(
             signals[0].topic_shift_penalty > 0.8,
             "Low similarity should produce high shift penalty"
@@ -309,7 +297,7 @@ mod tests {
             ),
         ];
         let sims = vec![0.6];
-        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default(), 512);
+        let signals = score_boundaries(&blocks, &sims, &CognitiveWeights::default());
         assert!(
             signals[0].discourse_continuation > 0.8,
             "Furthermore should signal strong continuation"

@@ -75,9 +75,9 @@ pub async fn enriched_chunk_plain(
     run_enriched_pipeline(blocks, llm_client, config).await
 }
 
-/// Estimate token count using whitespace splitting (fast approximation).
+/// Estimate token count (shared byte-based estimator, ~4 bytes per token).
 pub fn estimate_tokens(text: &str) -> usize {
-    text.split_whitespace().count()
+    super::estimate_tokens(text)
 }
 
 /// A group of blocks forming an initial chunk before LLM enrichment.
@@ -107,6 +107,10 @@ fn initial_grouping(
     let mut groups: Vec<InitialGroup> = Vec::new();
     let mut current_text = String::new();
     let mut current_start = blocks[0].offset;
+    // Real end offset of the last block added — blocks are non-contiguous
+    // (inter-block whitespace belongs to no block), so start + text length
+    // would undercount.
+    let mut current_end = blocks[0].offset;
     let mut current_tokens: usize = 0;
     let mut current_heading = if !heading_paths.is_empty() {
         heading_paths[0].clone()
@@ -129,11 +133,10 @@ fn initial_grouping(
 
         // Start new chunk on heading
         if is_heading && !current_text.is_empty() {
-            let offset_end = current_start + current_text.len();
             groups.push(InitialGroup {
                 text: std::mem::take(&mut current_text),
                 offset_start: current_start,
-                offset_end,
+                offset_end: current_end,
                 token_estimate: current_tokens,
                 heading_path: current_heading.clone(),
             });
@@ -147,11 +150,10 @@ fn initial_grouping(
             && current_tokens + block_tokens > soft_budget
             && (is_atomic || block_tokens > 0)
         {
-            let offset_end = current_start + current_text.len();
             groups.push(InitialGroup {
                 text: std::mem::take(&mut current_text),
                 offset_start: current_start,
-                offset_end,
+                offset_end: current_end,
                 token_estimate: current_tokens,
                 heading_path: current_heading.clone(),
             });
@@ -160,17 +162,17 @@ fn initial_grouping(
         }
 
         current_text.push_str(block.text);
+        current_end = block.offset + block.text.len();
         current_tokens += block_tokens;
         current_heading = heading_path.clone();
     }
 
     // Flush remaining
     if !current_text.is_empty() {
-        let offset_end = current_start + current_text.len();
         groups.push(InitialGroup {
             text: current_text,
             offset_start: current_start,
-            offset_end,
+            offset_end: current_end,
             token_estimate: current_tokens,
             heading_path: current_heading,
         });
@@ -419,10 +421,40 @@ mod tests {
 
     #[test]
     fn test_estimate_tokens() {
-        assert_eq!(estimate_tokens("hello world"), 2);
-        assert_eq!(estimate_tokens("one two three four"), 4);
+        // Byte-based: ~4 bytes per token, rounded up
+        assert_eq!(estimate_tokens("hello world"), 3);
+        assert_eq!(estimate_tokens("one two three four"), 5);
         assert_eq!(estimate_tokens(""), 0);
-        assert_eq!(estimate_tokens("  spaces  between  "), 2);
+        // CJK text must not estimate to ~0 tokens
+        assert_eq!(estimate_tokens("日本語のテキスト"), 6);
+    }
+
+    #[test]
+    fn test_initial_grouping_offset_end_spans_block_gaps() {
+        // Blocks at 0..10 and 20..30 (10-byte gap between them, as produced
+        // by blank lines in the source). offset_end must be the last block's
+        // real end (30), not start + concatenated text length (20).
+        let blocks = vec![
+            Block {
+                text: "aaaaaaaaaa",
+                offset: 0,
+                kind: BlockKind::Sentence,
+            },
+            Block {
+                text: "bbbbbbbbbb",
+                offset: 20,
+                kind: BlockKind::Sentence,
+            },
+        ];
+        let heading_paths = vec![vec![], vec![]];
+
+        let groups = initial_grouping(&blocks, &heading_paths, 1000);
+
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].offset_end, 30,
+            "offset_end must account for inter-block gaps"
+        );
     }
 
     #[test]

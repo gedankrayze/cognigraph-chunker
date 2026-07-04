@@ -24,11 +24,13 @@ pub struct HealResult {
 /// Heal broken propositions by merging chunks with unresolved dependencies.
 ///
 /// Operates on the assembled chunks and original signals/blocks.
+/// Clears `is_break` on every merged boundary so the signals stay consistent
+/// with the healed partition (the evaluation metrics are derived from them).
 /// Returns the healed chunk list and merge diagnostics.
 pub fn heal_proposition_breaks(
     chunks: Vec<CognitiveChunk>,
     blocks: &[BlockEnvelope],
-    signals: &[BoundarySignal],
+    signals: &mut [BoundarySignal],
     hard_budget: usize,
 ) -> (Vec<CognitiveChunk>, HealResult) {
     if chunks.len() <= 1 {
@@ -72,6 +74,13 @@ pub fn heal_proposition_breaks(
                     "Merged chunk {} ← chunk {}: {}",
                     current.chunk_index, next.chunk_index, reason
                 ));
+                // The boundary no longer exists — keep signals consistent
+                // with the healed partition.
+                if let Some(idx) = boundary_block_idx
+                    && idx < signals.len()
+                {
+                    signals[idx].is_break = false;
+                }
                 current = merge_chunks(&current, next);
                 merges += 1;
                 i += 1;
@@ -288,7 +297,7 @@ mod tests {
             make_block("The system processes text.", false, false, false),
             make_block("It also handles tables.", true, false, false),
         ];
-        let signals = vec![make_signal(0, true)];
+        let mut signals = vec![make_signal(0, true)];
         let chunks = vec![
             make_chunk(0, "The system processes text.", 0, blocks[0].text.len()),
             make_chunk(
@@ -299,13 +308,17 @@ mod tests {
             ),
         ];
 
-        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &signals, 1000);
+        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &mut signals, 1000);
         assert_eq!(result.merges, 1, "Should merge pronoun-starting chunk");
         assert_eq!(healed.len(), 1, "Should produce 1 merged chunk");
         assert!(
             result.merge_reasons[0].contains("unresolved pronoun"),
             "Reason should mention pronoun: {:?}",
             result.merge_reasons
+        );
+        assert!(
+            !signals[0].is_break,
+            "Healed boundary must be cleared in signals"
         );
     }
 
@@ -315,7 +328,7 @@ mod tests {
             make_block("We designed a new algorithm.", false, false, false),
             make_block("This approach improves performance.", false, true, false),
         ];
-        let signals = vec![make_signal(0, true)];
+        let mut signals = vec![make_signal(0, true)];
         let chunks = vec![
             make_chunk(0, "We designed a new algorithm.", 0, blocks[0].text.len()),
             make_chunk(
@@ -326,7 +339,7 @@ mod tests {
             ),
         ];
 
-        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &signals, 1000);
+        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &mut signals, 1000);
         assert_eq!(
             result.merges, 1,
             "Should merge demonstrative-starting chunk"
@@ -340,7 +353,7 @@ mod tests {
             make_block("First sentence.", false, false, false),
             make_block("It continues.", true, false, false),
         ];
-        let signals = vec![make_signal(0, true)];
+        let mut signals = vec![make_signal(0, true)];
         let chunks = vec![
             make_chunk(0, "First sentence.", 0, blocks[0].text.len()),
             make_chunk(
@@ -352,7 +365,7 @@ mod tests {
         ];
 
         // Set hard budget too low to allow merge
-        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &signals, 5);
+        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &mut signals, 5);
         assert_eq!(result.merges, 0, "Should not merge when budget exceeded");
         assert_eq!(healed.len(), 2);
     }
@@ -363,7 +376,7 @@ mod tests {
             make_block("Section A content.", false, false, false),
             make_block("Section B content.", false, false, false),
         ];
-        let signals = vec![make_signal(0, true)];
+        let mut signals = vec![make_signal(0, true)];
         let chunks = vec![
             make_chunk(0, "Section A content.", 0, blocks[0].text.len()),
             make_chunk(
@@ -374,7 +387,7 @@ mod tests {
             ),
         ];
 
-        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &signals, 1000);
+        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &mut signals, 1000);
         assert_eq!(result.merges, 0, "Should not merge clean breaks");
         assert_eq!(healed.len(), 2);
     }
@@ -385,7 +398,7 @@ mod tests {
             make_block("The data shows improvement.", false, false, false),
             make_block("Furthermore, the trend continues.", false, false, true),
         ];
-        let signals = vec![make_signal(0, true)];
+        let mut signals = vec![make_signal(0, true)];
         let chunks = vec![
             make_chunk(0, "The data shows improvement.", 0, blocks[0].text.len()),
             make_chunk(
@@ -396,7 +409,7 @@ mod tests {
             ),
         ];
 
-        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &signals, 1000);
+        let (healed, result) = heal_proposition_breaks(chunks, &blocks, &mut signals, 1000);
         assert_eq!(result.merges, 1, "Should merge discourse continuation");
         assert_eq!(healed.len(), 1);
     }
