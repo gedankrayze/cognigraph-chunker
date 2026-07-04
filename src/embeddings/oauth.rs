@@ -74,12 +74,21 @@ struct ErrorDetail {
     message: String,
 }
 
+/// Maximum inputs per request — OpenAI-compatible APIs cap at 2048 inputs.
+const MAX_BATCH: usize = 2048;
+
 impl EmbeddingProvider for OAuthProvider {
     async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(MAX_BATCH) {
+            out.extend(self.embed_batch(batch).await?);
         }
+        Ok(out)
+    }
+}
 
+impl OAuthProvider {
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
         let token = self.token_source.get_token().await?;
         let url = format!("{}/embeddings", self.base_url);
 

@@ -143,12 +143,21 @@ struct CfEmbeddingResult {
     data: Vec<Vec<f64>>,
 }
 
+/// Maximum inputs per request — Cloudflare Workers AI caps `text` at 100 items.
+const MAX_BATCH: usize = 100;
+
 impl EmbeddingProvider for CloudflareProvider {
     async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(MAX_BATCH) {
+            out.extend(self.embed_batch(batch).await?);
         }
+        Ok(out)
+    }
+}
 
+impl CloudflareProvider {
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
         let url = self.endpoint_url();
 
         let request = EmbeddingRequest { text: texts };

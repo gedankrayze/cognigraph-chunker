@@ -32,9 +32,10 @@ pub trait RerankerProvider: Send + Sync {
 /// Compatible with models like:
 /// - `cross-encoder/ms-marco-MiniLM-L-6-v2`
 /// - `BAAI/bge-reranker-base`
+#[derive(Clone)]
 pub struct OnnxReranker {
-    session: std::sync::Mutex<ort::session::Session>,
-    tokenizer: tokenizers::Tokenizer,
+    session: std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
+    tokenizer: std::sync::Arc<tokenizers::Tokenizer>,
     model_name: String,
 }
 
@@ -73,17 +74,23 @@ impl OnnxReranker {
             .unwrap_or_else(|| "onnx-reranker".to_string());
 
         Ok(Self {
-            session: std::sync::Mutex::new(session),
-            tokenizer,
+            session: std::sync::Arc::new(std::sync::Mutex::new(session)),
+            tokenizer: std::sync::Arc::new(tokenizer),
             model_name,
         })
     }
+}
 
-    /// Score a single text pair. Returns a relevance score in [0.0, 1.0].
-    fn score_pair(&self, text_a: &str, text_b: &str) -> Result<f64> {
+/// Score a single text pair on the blocking pool. Returns a score in [0.0, 1.0].
+fn onnx_score_pair(
+    session: &std::sync::Mutex<ort::session::Session>,
+    tokenizer: &tokenizers::Tokenizer,
+    text_a: &str,
+    text_b: &str,
+) -> Result<f64> {
+    {
         // Cross-encoders encode both texts as a single input (text_a [SEP] text_b)
-        let encoding = self
-            .tokenizer
+        let encoding = tokenizer
             .encode((text_a, text_b), true)
             .map_err(|e| anyhow::anyhow!("Tokenization failed: {e}"))?;
 
@@ -103,8 +110,7 @@ impl OnnxReranker {
         let token_type_ids_val = ort::value::Value::from_array(([1, seq_len], token_type_ids))
             .context("Failed to create token_type_ids")?;
 
-        let mut session = self
-            .session
+        let mut session = session
             .lock()
             .map_err(|e| anyhow::anyhow!("Session lock poisoned: {e}"))?;
 
@@ -134,11 +140,21 @@ impl OnnxReranker {
 
 impl RerankerProvider for OnnxReranker {
     async fn rerank(&self, query: &str, documents: &[&str]) -> Result<Vec<f64>> {
-        let mut scores = Vec::with_capacity(documents.len());
-        for doc in documents {
-            scores.push(self.score_pair(query, doc)?);
-        }
-        Ok(scores)
+        // Cross-encoder inference is CPU-bound: run the whole batch on the
+        // blocking pool instead of stalling a tokio worker thread.
+        let query = query.to_string();
+        let documents: Vec<String> = documents.iter().map(|d| d.to_string()).collect();
+        let session = self.session.clone();
+        let tokenizer = self.tokenizer.clone();
+
+        tokio::task::spawn_blocking(move || {
+            documents
+                .iter()
+                .map(|doc| onnx_score_pair(&session, &tokenizer, &query, doc))
+                .collect()
+        })
+        .await
+        .context("ONNX reranker task panicked")?
     }
 
     fn model_name(&self) -> &str {
