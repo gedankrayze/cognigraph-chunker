@@ -320,6 +320,30 @@ pub fn find_pattern_boundary(
     None
 }
 
+/// Adjust a hard-split position so it does not bisect a UTF-8 character.
+///
+/// Walks `end` back over UTF-8 continuation bytes (at most 3) so the split
+/// lands on a character boundary. If the bytes are not valid UTF-8, or
+/// walking back would stall progress (`end <= pos`), the original position
+/// is returned unchanged, preserving raw byte semantics for binary input.
+#[inline]
+fn floor_utf8_boundary(text: &[u8], end: usize, pos: usize) -> usize {
+    if end >= text.len() {
+        return end;
+    }
+    let mut adjusted = end;
+    let mut steps = 0;
+    while adjusted > pos + 1 && steps < 3 && text[adjusted] & 0xC0 == 0x80 {
+        adjusted -= 1;
+        steps += 1;
+    }
+    if text[adjusted] & 0xC0 == 0x80 {
+        end // not valid UTF-8 here (or no room to move) — keep raw split
+    } else {
+        adjusted
+    }
+}
+
 /// Compute the split position given the current state.
 ///
 /// Returns the position to split at, handling pattern mode vs delimiter mode,
@@ -346,13 +370,18 @@ pub fn compute_split_at(
                     found_pos
                 } else if prefix_mode {
                     // Split BEFORE pattern (pattern goes to next chunk)
-                    if found_pos == pos { end } else { found_pos }
+                    if found_pos == pos {
+                        floor_utf8_boundary(text, end, pos)
+                    } else {
+                        found_pos
+                    }
                 } else {
                     // Split AFTER pattern (pattern stays with current chunk)
                     found_pos + pattern.len()
                 }
             }
-            None => end, // No pattern found, hard split at target
+            // No pattern found, hard split at target
+            None => floor_utf8_boundary(text, end, pos),
         }
     } else {
         // Single-byte delimiters mode
@@ -371,13 +400,54 @@ pub fn compute_split_at(
                     found_pos
                 } else if prefix_mode {
                     // Split BEFORE delimiter (delimiter goes to next chunk)
-                    if found_pos == pos { end } else { found_pos }
+                    if found_pos == pos {
+                        floor_utf8_boundary(text, end, pos)
+                    } else {
+                        found_pos
+                    }
                 } else {
                     // Split AFTER delimiter (delimiter stays with current chunk)
                     found_pos + 1
                 }
             }
-            None => end, // No delimiter found, hard split at target
+            // No delimiter found, hard split at target
+            None => floor_utf8_boundary(text, end, pos),
         }
     }
+}
+
+/// Parse delimiter string, interpreting escape sequences like \n, \t.
+pub fn parse_delimiters(s: &str) -> Vec<u8> {
+    let mut result = Vec::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => result.push(b'\n'),
+                Some('t') => result.push(b'\t'),
+                Some('r') => result.push(b'\r'),
+                Some('\\') => result.push(b'\\'),
+                Some(other) => {
+                    result.push(b'\\');
+                    let mut buf = [0u8; 4];
+                    result.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
+                }
+                None => result.push(b'\\'),
+            }
+        } else {
+            let mut buf = [0u8; 4];
+            result.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+        }
+    }
+    result
+}
+
+/// Parse comma-separated patterns, interpreting escape sequences.
+pub fn parse_patterns(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|p| {
+            let bytes = parse_delimiters(p);
+            String::from_utf8_lossy(&bytes).into_owned()
+        })
+        .collect()
 }
