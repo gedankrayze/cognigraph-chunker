@@ -72,27 +72,30 @@ A reranker that produces 30 tiny chunks with 5% entity orphans is *worse* for RA
 
 All benchmarks use the same conditions:
 
-- **Document:** `docs/08-the-complete-chunking-toolkit.md` (~13 KB, 125 blocks)
+- **Document:** `docs/08-the-complete-chunking-toolkit.md` (~19.5 KB, 181 blocks)
 - **Embedding provider:** OpenAI `text-embedding-3-small`
 - **Budgets:** soft=512, hard=768 tokens (defaults)
 - **Machine:** macOS, Apple Silicon
 - **Measurement:** wall-clock time including embedding + reranking API calls
 - **ONNX model:** `ms-marco-MiniLM-L-6-v2` (~22 MB, local inference)
+- **Software:** July 2026 build — byte-based token estimation (~4 bytes/token, so token figures read higher than in earlier revisions of this article), correctly weighted reranker blending, and concurrent rerank calls
 
 The baseline runs cognitive chunking without any reranker — pure heuristic boundary scoring.
 
 ## Results
 
-| Metric | Baseline | ONNX (local) | NVIDIA Nemotron 1B | Cohere v3.5 | Cloudflare BGE | OAuth (corporate) |
-|--------|----------|--------------|--------------------|----- --------|----------------|-------------------|
-| **Time** | 2.2s | 2.8s | 8.9s | 15.5s | 18.9s | 40.7s |
-| **Chunks** | 21 | 27 | 27 | 33 | 30 | 29 |
-| **Avg tokens** | 85 | 66 | 66 | 54 | 60 | 62 |
-| **Max tokens** | 339 | 137 | 137 | 130 | 181 | 181 |
+| Metric | Baseline | ONNX (local) | NVIDIA Nemotron 1B | Cohere v3.5\* | Cloudflare BGE\* | OAuth (corporate)\* |
+|--------|----------|--------------|--------------------|--------------|----------------|-------------------|
+| **Time** | 1.7s | 3.1s | 4.6s | 15.5s | 18.9s | 40.7s |
+| **Chunks** | 30 | 43 | 44 | 33 | 30 | 29 |
+| **Avg tokens** | 164 | 114 | 112 | 54 | 60 | 62 |
+| **Max tokens** | 522 | 272 | 272 | 130 | 181 | 181 |
 | **Entity orphan** | 0.0% | 0.0% | 0.0% | 3.1% | 3.4% | 3.6% |
 | **Pronoun boundary** | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 | **Heading attachment** | 100% | 100% | 100% | 100% | 100% | 100% |
 | **Discourse break** | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
+
+\* Prior-round measurements (February 2026: whitespace-based token counts, pre-fix reranker blending, smaller revision of the benchmark document) — not directly comparable to the first three columns. Pending a credential refresh for a re-run.
 
 ### Provider Details
 
@@ -106,7 +109,7 @@ The baseline runs cognitive chunking without any reranker — pure heuristic bou
 
 ### ONNX (Local): Best Overall
 
-The surprise winner. Running `ms-marco-MiniLM-L-6-v2` locally produces **identical results to NVIDIA Nemotron 1B** — 27 chunks, 137 max tokens, 0% entity orphans — but in just **2.8 seconds**, only 0.6s more than baseline. No network round-trips, no API keys, no per-call costs.
+The surprise winner. Running `ms-marco-MiniLM-L-6-v2` locally produces **near-identical results to NVIDIA Nemotron 1B** — 43 vs 44 chunks, the same 272-token maximum, 0% entity orphans — but in just **3.1 seconds**, only 1.4s more than baseline. No network round-trips, no API keys, no per-call costs.
 
 The 22 MB model is small enough to bundle with deployments. For Docker containers, it adds negligible image size. For CI/CD pipelines, it can be cached. The only requirement is ONNX Runtime available at runtime (`brew install onnxruntime` on macOS, or the system package on Linux).
 
@@ -114,11 +117,13 @@ This is the recommended choice whenever local inference is feasible. It delivers
 
 ### NVIDIA Nemotron 1B: Best Cloud Option
 
-Matches ONNX quality exactly — **0% entity orphans**, 27 chunks, 137 max tokens — making it the best cloud-based reranker. At 8.9 seconds (4x baseline), the latency overhead is moderate and predictable. For batch processing or offline indexing, this is negligible. For real-time chunking, it adds roughly 7 seconds of reranking on top of the 2-second embedding phase.
+Matches ONNX quality almost exactly — **0% entity orphans**, 44 chunks, the same 272 max tokens — making it the best cloud-based reranker. At 4.6 seconds (~2.7x baseline, with ambiguous boundaries now scored concurrently), the latency overhead is moderate and predictable. For batch processing or offline indexing, this is negligible. For real-time chunking, it adds roughly 3 seconds of reranking on top of the embedding phase.
 
 Choose NVIDIA over ONNX when you cannot bundle a local model (e.g., serverless deployments, thin containers) or when you want a managed service with no local dependencies.
 
 ### Cohere and Cloudflare: More Granular, Slight Quality Cost
+
+*(Figures in this section and the OAuth section are from the February 2026 round — see the table note.)*
 
 Both Cohere and Cloudflare produce more chunks (33 and 30 respectively) with smaller average sizes. This is attractive for retrieval precision — smaller chunks mean more targeted matches. However, both introduce a ~3% entity orphan rate, meaning a few entities lose their cross-reference value.
 
@@ -134,7 +139,7 @@ This provider exists for enterprises that cannot send data to public APIs and mu
 
 ### Baseline: When Reranking Is Not Worth It
 
-The baseline produces excellent quality metrics on its own — zero across all error rates. The only downside is chunk granularity: 21 chunks with a max of 339 tokens means some chunks are large. If your retrieval system handles larger chunks well (e.g., with 512-token windows), the baseline may be sufficient and 5–20x faster than any cloud reranker.
+The baseline produces excellent quality metrics on its own — zero across all error rates. The only downside is chunk granularity: 30 chunks with a max of 522 tokens means some chunks are large. If your retrieval system handles larger chunks well (e.g., with 512-token windows), the baseline may be sufficient and several times faster than any cloud reranker.
 
 ## Choosing a Reranker
 
@@ -192,4 +197,4 @@ cognigraph-chunker cognitive -i doc.md -p openai --reranker nvidia
 
 Cross-encoder reranking is a precision tool, not a necessity. The cognitive pipeline's heuristic scoring already produces excellent results. Rerankers shine when you need finer granularity (smaller chunks for tighter retrieval windows) without sacrificing entity coherence.
 
-The standout finding is that a local 22 MB ONNX model (`ms-marco-MiniLM-L-6-v2`) matches the best cloud API in quality while adding only 0.6 seconds of overhead. If you can bundle the model, there is no reason to pay for cloud reranking. When local inference is not feasible, NVIDIA's Nemotron 1B is the best cloud alternative — the only API provider that improves granularity while maintaining perfect quality metrics. Other providers offer more aggressive splitting at a small quality cost, which may or may not matter depending on your retrieval architecture.
+The standout finding is that a local 22 MB ONNX model (`ms-marco-MiniLM-L-6-v2`) matches the best cloud API in quality while adding only ~1.4 seconds of overhead. If you can bundle the model, there is no reason to pay for cloud reranking. When local inference is not feasible, NVIDIA's Nemotron 1B is the best cloud alternative — the only API provider that improves granularity while maintaining perfect quality metrics. Other providers offer more aggressive splitting at a small quality cost, which may or may not matter depending on your retrieval architecture.
