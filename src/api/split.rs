@@ -4,11 +4,10 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::core::split::{IncludeDelim, split_at_delimiters, split_at_patterns};
+use crate::core::{parse_delimiters, parse_patterns};
 
 use super::errors::ApiError;
-use super::types::{
-    ChunksResponse, MergeParams, chunks_response, maybe_merge_api, parse_delimiters, parse_patterns,
-};
+use super::types::{ChunksResponse, MergeParams, chunks_response, maybe_merge_api};
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]

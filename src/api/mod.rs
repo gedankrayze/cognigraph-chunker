@@ -9,6 +9,7 @@ pub mod evaluate;
 pub mod health;
 pub mod intent;
 pub mod merge;
+pub mod provider;
 pub mod semantic;
 pub mod split;
 pub mod topo;

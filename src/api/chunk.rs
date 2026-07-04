@@ -4,11 +4,10 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::core::chunk::chunk;
+use crate::core::parse_delimiters;
 
 use super::errors::ApiError;
-use super::types::{
-    ChunksResponse, MergeParams, chunks_response, maybe_merge_api, parse_delimiters,
-};
+use super::types::{ChunksResponse, MergeParams, chunks_response, maybe_merge_api};
 
 fn default_size() -> usize {
     4096
