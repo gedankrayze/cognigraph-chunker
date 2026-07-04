@@ -31,11 +31,7 @@ impl CloudflareProvider {
         model: Option<String>,
         ai_gateway: Option<String>,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for Cloudflare provider")?;
+        let client = crate::http_util::build_client(false)?;
 
         Ok(Self {
             client,
@@ -55,19 +51,13 @@ impl CloudflareProvider {
             self.account_id
         );
 
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.auth_token))
-            .send()
-            .await
-            .context("Failed to verify Cloudflare auth token")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Cloudflare token verification response")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", self.auth_token)),
+            "Cloudflare token verification",
+        )
+        .await?;
 
         if !status.is_success() {
             bail!(
@@ -176,17 +166,11 @@ impl EmbeddingProvider for CloudflareProvider {
             );
         }
 
-        let response = req_builder
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to Cloudflare AI embeddings API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Cloudflare response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            req_builder.json(&request),
+            "Cloudflare AI embeddings",
+        )
+        .await?;
 
         if !status.is_success() {
             bail!("Cloudflare AI API error ({}): {}", status, body);
@@ -219,50 +203,17 @@ impl EmbeddingProvider for CloudflareProvider {
 /// Resolve Cloudflare credentials from args, env vars, or `.env.cloudflare` file.
 ///
 /// Returns `(auth_token, account_id, ai_gateway)`.
-/// Try to read a non-empty env var, returning `Some` if found.
-fn env_non_empty(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
-}
-
 pub fn resolve_cloudflare_credentials(
     auth_token: &Option<String>,
     account_id: &Option<String>,
     ai_gateway: &Option<String>,
 ) -> Result<(String, String, Option<String>)> {
-    let mut token = auth_token
-        .clone()
-        .or_else(|| env_non_empty("CLOUDFLARE_AUTH_TOKEN"));
-    let mut acct = account_id
-        .clone()
-        .or_else(|| env_non_empty("CLOUDFLARE_ACCOUNT_ID"));
-    let mut gw = ai_gateway
-        .clone()
-        .or_else(|| env_non_empty("CLOUDFLARE_AI_GATEWAY"));
+    use crate::config::resolve_setting;
 
-    // Try .env.cloudflare file for any still-missing values
-    if (token.is_none() || acct.is_none() || gw.is_none())
-        && let Ok(content) = std::fs::read_to_string(".env.cloudflare")
-    {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            let Some((key, val)) = line.split_once('=') else {
-                continue;
-            };
-            let val = val.trim();
-            if val.is_empty() {
-                continue;
-            }
-            match key.trim() {
-                "CLOUDFLARE_AUTH_TOKEN" if token.is_none() => token = Some(val.to_string()),
-                "CLOUDFLARE_ACCOUNT_ID" if acct.is_none() => acct = Some(val.to_string()),
-                "CLOUDFLARE_AI_GATEWAY" if gw.is_none() => gw = Some(val.to_string()),
-                _ => {}
-            }
-        }
-    }
+    const FILE: &str = ".env.cloudflare";
+    let token = resolve_setting(auth_token, "CLOUDFLARE_AUTH_TOKEN", FILE);
+    let acct = resolve_setting(account_id, "CLOUDFLARE_ACCOUNT_ID", FILE);
+    let gw = resolve_setting(ai_gateway, "CLOUDFLARE_AI_GATEWAY", FILE);
 
     let token = token.ok_or_else(|| {
         anyhow::anyhow!(

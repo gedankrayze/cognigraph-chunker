@@ -4,29 +4,18 @@
 //! to call an OpenAI-compatible `/embeddings` endpoint. The token is cached
 //! and automatically refreshed before expiry.
 
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
-
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use super::EmbeddingProvider;
+use super::oauth_token::OAuthTokenSource;
 
 /// OAuth-authenticated OpenAI-compatible embeddings provider.
 pub struct OAuthProvider {
     client: reqwest::Client,
-    token_url: String,
-    client_id: String,
-    client_secret: String,
-    scope: Option<String>,
+    token_source: OAuthTokenSource,
     base_url: String,
     model: String,
-    token_cache: Mutex<Option<CachedToken>>,
-}
-
-struct CachedToken {
-    access_token: String,
-    expires_at: Instant,
 }
 
 impl OAuthProvider {
@@ -39,100 +28,22 @@ impl OAuthProvider {
         model: Option<String>,
         danger_accept_invalid_certs: bool,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(30))
-            .timeout(Duration::from_secs(120))
-            .danger_accept_invalid_certs(danger_accept_invalid_certs)
-            .build()
-            .context("Failed to build HTTP client for OAuth provider")?;
+        let client = crate::http_util::build_client(danger_accept_invalid_certs)?;
+        let token_source =
+            OAuthTokenSource::new(client.clone(), token_url, client_id, client_secret, scope);
 
         Ok(Self {
             client,
-            token_url,
-            client_id,
-            client_secret,
-            scope,
+            token_source,
             base_url: base_url.trim_end_matches('/').to_string(),
             model: model.unwrap_or_else(|| "text-embedding-3-small".to_string()),
-            token_cache: Mutex::new(None),
         })
-    }
-
-    /// Acquire a valid access token, using the cache if not expired.
-    async fn get_token(&self) -> Result<String> {
-        // Check cache (with 60s safety margin before expiry)
-        {
-            let cache = self
-                .token_cache
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Token cache lock poisoned: {e}"))?;
-            if let Some(ref cached) = *cache
-                && Instant::now() + Duration::from_secs(60) < cached.expires_at
-            {
-                return Ok(cached.access_token.clone());
-            }
-        }
-
-        // Fetch new token
-        let mut form = vec![
-            ("grant_type", "client_credentials"),
-            ("client_id", &self.client_id),
-            ("client_secret", &self.client_secret),
-        ];
-        let scope_val;
-        if let Some(ref s) = self.scope {
-            scope_val = s.clone();
-            form.push(("scope", &scope_val));
-        }
-
-        let response = self
-            .client
-            .post(&self.token_url)
-            .form(&form)
-            .send()
-            .await
-            .context("Failed to request OAuth token")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read OAuth token response")?;
-
-        if !status.is_success() {
-            bail!("OAuth token request failed ({}): {}", status, body);
-        }
-
-        let token_resp: TokenResponse =
-            serde_json::from_str(&body).context("Failed to parse OAuth token response")?;
-
-        let expires_at = Instant::now() + Duration::from_secs(token_resp.expires_in);
-        let access_token = token_resp.access_token.clone();
-
-        // Update cache
-        let mut cache = self
-            .token_cache
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Token cache lock poisoned: {e}"))?;
-        *cache = Some(CachedToken {
-            access_token: token_resp.access_token,
-            expires_at,
-        });
-
-        Ok(access_token)
     }
 
     /// Verify that we can acquire a token.
     pub async fn verify_credentials(&self) -> Result<()> {
-        self.get_token().await?;
-        Ok(())
+        self.token_source.get_token().await.map(|_| ())
     }
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    access_token: String,
-    expires_in: u64,
 }
 
 // -- OpenAI-compatible embedding types --
@@ -169,7 +80,7 @@ impl EmbeddingProvider for OAuthProvider {
             return Ok(vec![]);
         }
 
-        let token = self.get_token().await?;
+        let token = self.token_source.get_token().await?;
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
@@ -177,20 +88,14 @@ impl EmbeddingProvider for OAuthProvider {
             input: texts,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to OAuth embedding API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read OAuth embedding response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .json(&request),
+            "OAuth embeddings",
+        )
+        .await?;
 
         if !status.is_success() {
             if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
@@ -220,11 +125,6 @@ impl EmbeddingProvider for OAuthProvider {
     }
 }
 
-/// Try to read a non-empty env var, returning `Some` if found.
-fn env_non_empty(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
-}
-
 /// Resolved OAuth credentials.
 pub struct OAuthCredentials {
     pub token_url: String,
@@ -244,46 +144,15 @@ pub fn resolve_oauth_credentials(
     base_url: &Option<String>,
     model: &Option<String>,
 ) -> Result<OAuthCredentials> {
-    let mut t_url = token_url
-        .clone()
-        .or_else(|| env_non_empty("OAUTH_TOKEN_URL"));
-    let mut c_id = client_id
-        .clone()
-        .or_else(|| env_non_empty("OAUTH_CLIENT_ID"));
-    let mut c_secret = client_secret
-        .clone()
-        .or_else(|| env_non_empty("OAUTH_CLIENT_SECRET"));
-    let mut sc = scope.clone().or_else(|| env_non_empty("OAUTH_SCOPE"));
-    let mut b_url = base_url.clone().or_else(|| env_non_empty("OAUTH_BASE_URL"));
-    let mut mdl = model.clone().or_else(|| env_non_empty("OAUTH_MODEL"));
+    use crate::config::resolve_setting;
 
-    // Try .env.oauth file for any still-missing values
-    if (t_url.is_none() || c_id.is_none() || c_secret.is_none() || b_url.is_none())
-        && let Ok(content) = std::fs::read_to_string(".env.oauth")
-    {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            let Some((key, val)) = line.split_once('=') else {
-                continue;
-            };
-            let val = val.trim();
-            if val.is_empty() {
-                continue;
-            }
-            match key.trim() {
-                "OAUTH_TOKEN_URL" if t_url.is_none() => t_url = Some(val.to_string()),
-                "OAUTH_CLIENT_ID" if c_id.is_none() => c_id = Some(val.to_string()),
-                "OAUTH_CLIENT_SECRET" if c_secret.is_none() => c_secret = Some(val.to_string()),
-                "OAUTH_SCOPE" if sc.is_none() => sc = Some(val.to_string()),
-                "OAUTH_BASE_URL" if b_url.is_none() => b_url = Some(val.to_string()),
-                "OAUTH_MODEL" if mdl.is_none() => mdl = Some(val.to_string()),
-                _ => {}
-            }
-        }
-    }
+    const FILE: &str = ".env.oauth";
+    let t_url = resolve_setting(token_url, "OAUTH_TOKEN_URL", FILE);
+    let c_id = resolve_setting(client_id, "OAUTH_CLIENT_ID", FILE);
+    let c_secret = resolve_setting(client_secret, "OAUTH_CLIENT_SECRET", FILE);
+    let sc = resolve_setting(scope, "OAUTH_SCOPE", FILE);
+    let b_url = resolve_setting(base_url, "OAUTH_BASE_URL", FILE);
+    let mdl = resolve_setting(model, "OAUTH_MODEL", FILE);
 
     let t_url = t_url.ok_or_else(|| {
         anyhow::anyhow!(

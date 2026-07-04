@@ -14,11 +14,7 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(base_url: Option<String>, model: Option<String>) -> anyhow::Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for Ollama provider")?;
+        let client = crate::http_util::build_client(false)?;
         Ok(Self {
             client,
             base_url: base_url.unwrap_or_else(|| "http://localhost:11434".to_string()),
@@ -56,19 +52,11 @@ impl EmbeddingProvider for OllamaProvider {
             input: texts,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to connect to Ollama. Is it running?")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Ollama response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client.post(&url).json(&request),
+            "Ollama embeddings",
+        )
+        .await?;
 
         if !status.is_success() {
             if let Ok(err) = serde_json::from_str::<OllamaError>(&body) {
@@ -89,5 +77,57 @@ impl EmbeddingProvider for OllamaProvider {
         }
 
         Ok(parsed.embeddings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Spawn a local HTTP server that answers every request with a 302
+    /// redirect back to itself and counts the requests it receives.
+    async fn spawn_redirecting_server() -> (String, Arc<AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let counter = Arc::new(AtomicUsize::new(0));
+        let server_counter = counter.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                server_counter.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 4096];
+                let _ = socket.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 302 Found\r\nLocation: http://{addr}/elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+
+        (format!("http://{addr}"), counter)
+    }
+
+    #[tokio::test]
+    async fn test_embed_does_not_follow_redirects() {
+        // A redirect from a validated host would bypass the API server's SSRF
+        // check (validate only sees the first hop). The client must surface
+        // the 3xx as an error instead of following it.
+        let (base_url, requests) = spawn_redirecting_server().await;
+        let provider = OllamaProvider::new(Some(base_url), None).unwrap();
+
+        let result = provider.embed(&["hello"]).await;
+
+        assert!(result.is_err(), "a 302 response must be an error");
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            1,
+            "client must not follow the redirect (each hop is a new request)"
+        );
     }
 }

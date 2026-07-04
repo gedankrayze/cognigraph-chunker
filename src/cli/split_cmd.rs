@@ -1,11 +1,9 @@
 //! Delimiter splitting subcommand.
 
-use std::io::{self, Read};
-use std::path::PathBuf;
-
 use clap::Args;
 
 use cognigraph_chunker::core::split::{IncludeDelim, split_at_delimiters, split_at_patterns};
+use cognigraph_chunker::core::{parse_delimiters, parse_patterns};
 use cognigraph_chunker::output::{OutputFormat, write_chunks};
 
 use super::global_opts::{self, GlobalOpts};
@@ -62,7 +60,7 @@ impl From<IncludeDelimArg> for IncludeDelim {
 }
 
 pub fn run(args: &SplitArgs, global: &GlobalOpts) -> anyhow::Result<()> {
-    let text = read_input(&args.input, global.max_input_size)?;
+    let text = super::read_input(&args.input, global.max_input_size)?;
     let include_delim: IncludeDelim = args.include_delim.into();
 
     global.detail(&format!("[split] input: {} bytes", text.len()));
@@ -102,68 +100,3 @@ pub fn run(args: &SplitArgs, global: &GlobalOpts) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
-    if input == "-" {
-        let mut buf = Vec::new();
-        io::stdin()
-            .take(max_size as u64 + 1)
-            .read_to_end(&mut buf)?;
-        anyhow::ensure!(
-            buf.len() <= max_size,
-            "Stdin input exceeds maximum allowed size ({max_size} bytes). \
-             Use --max-input-size to increase the limit."
-        );
-        Ok(buf)
-    } else {
-        let path = PathBuf::from(input);
-        anyhow::ensure!(
-            path.exists(),
-            "File not found: {}\nCheck the path and try again.",
-            path.display()
-        );
-        let meta = std::fs::metadata(&path)?;
-        anyhow::ensure!(
-            meta.len() <= max_size as u64,
-            "File size ({} bytes) exceeds maximum allowed size ({max_size} bytes). \
-             Use --max-input-size to increase the limit.",
-            meta.len()
-        );
-        Ok(std::fs::read(&path)?)
-    }
-}
-
-/// Parse comma-separated patterns, interpreting escape sequences.
-pub(crate) fn parse_patterns(s: &str) -> Vec<String> {
-    s.split(',')
-        .map(|p| {
-            let bytes = parse_delimiters(p);
-            String::from_utf8_lossy(&bytes).into_owned()
-        })
-        .collect()
-}
-
-/// Parse delimiter string, interpreting escape sequences like \n, \t.
-fn parse_delimiters(s: &str) -> Vec<u8> {
-    let mut result = Vec::new();
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('n') => result.push(b'\n'),
-                Some('t') => result.push(b'\t'),
-                Some('r') => result.push(b'\r'),
-                Some('\\') => result.push(b'\\'),
-                Some(other) => {
-                    result.push(b'\\');
-                    let mut buf = [0u8; 4];
-                    result.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
-                }
-                None => result.push(b'\\'),
-            }
-        } else {
-            let mut buf = [0u8; 4];
-            result.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-        }
-    }
-    result
-}

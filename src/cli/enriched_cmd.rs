@@ -1,8 +1,5 @@
 //! Enriched chunking subcommand.
 
-use std::io::{self, Read};
-use std::path::PathBuf;
-
 use clap::Args;
 use serde::Serialize;
 
@@ -59,7 +56,7 @@ pub struct EnrichedArgs {
 }
 
 pub async fn run(args: &EnrichedArgs, global: &GlobalOpts) -> anyhow::Result<()> {
-    let text = read_input(&args.input, global.max_input_size)?;
+    let text = super::read_input(&args.input, global.max_input_size)?;
     let text_str = String::from_utf8_lossy(&text);
 
     global.detail(&format!(
@@ -191,26 +188,3 @@ struct EnrichedChunkEntry<'a> {
     heading_path: &'a [String],
 }
 
-fn read_input(input: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
-    if input == "-" {
-        let mut buf = Vec::new();
-        io::stdin()
-            .take(max_size as u64 + 1)
-            .read_to_end(&mut buf)?;
-        anyhow::ensure!(
-            buf.len() <= max_size,
-            "Stdin input exceeds maximum allowed size ({max_size} bytes)."
-        );
-        Ok(buf)
-    } else {
-        let path = PathBuf::from(input);
-        anyhow::ensure!(path.exists(), "File not found: {}", path.display());
-        let meta = std::fs::metadata(&path)?;
-        anyhow::ensure!(
-            meta.len() <= max_size as u64,
-            "File size ({} bytes) exceeds maximum ({max_size} bytes).",
-            meta.len()
-        );
-        Ok(std::fs::read(&path)?)
-    }
-}
