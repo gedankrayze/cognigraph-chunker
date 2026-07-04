@@ -30,6 +30,11 @@ pub struct ServeArgs {
     /// Allowed CORS origins (repeatable; omit for same-origin only)
     #[arg(long = "cors-origin")]
     pub cors_origins: Vec<String>,
+
+    /// Directory containing ONNX models that API clients may reference via
+    /// model_path/reranker_path. Omit to disable model loading via the API.
+    #[arg(long)]
+    pub onnx_model_dir: Option<std::path::PathBuf>,
 }
 
 pub async fn run(args: &ServeArgs) -> anyhow::Result<()> {
@@ -51,10 +56,21 @@ pub async fn run(args: &ServeArgs) -> anyhow::Result<()> {
         })?;
     }
 
+    // Validate the ONNX model directory at startup
+    if let Some(ref dir) = args.onnx_model_dir
+        && !dir.is_dir()
+    {
+        anyhow::bail!(
+            "--onnx-model-dir '{}' does not exist or is not a directory",
+            dir.display()
+        );
+    }
+
     let state = AppState {
         api_key: args.api_key.clone(),
         allow_private_urls: args.allow_private_urls,
         cors_origins: args.cors_origins.clone(),
+        onnx_model_dir: args.onnx_model_dir.clone(),
     };
 
     let app = api::router(state);
@@ -74,7 +90,38 @@ pub async fn run(args: &ServeArgs) -> anyhow::Result<()> {
         eprintln!("  CORS: {} allowed origin(s)", args.cors_origins.len());
     }
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     Ok(())
+}
+
+/// Resolve when the process receives Ctrl-C (SIGINT) or SIGTERM.
+///
+/// Without this, container platforms that send SIGTERM on deploy kill the
+/// process mid-request (the release profile uses `panic = "abort"`).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {}
+        _ = terminate => {}
+    }
+    eprintln!("Shutdown signal received, finishing in-flight requests…");
 }

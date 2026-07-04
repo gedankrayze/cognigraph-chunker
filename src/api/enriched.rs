@@ -71,9 +71,15 @@ pub struct EnrichedChunkEntry {
 }
 
 pub async fn enriched_handler(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<EnrichedRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // SSRF validation for the user-supplied LLM endpoint
+    super::validation::validate_outbound_urls(
+        state.allow_private_urls,
+        &[("llm_base_url", req.llm_base_url.as_deref())],
+    )?;
+
     let llm_config = LlmConfig::resolve(&req.api_key, &req.llm_base_url, &req.enrichment_model)?;
     let llm_client = CompletionClient::new(llm_config)?;
 

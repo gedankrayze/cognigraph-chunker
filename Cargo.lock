@@ -377,6 +377,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "subtle",
  "tokenizers",
  "tokio",
  "tower-http",

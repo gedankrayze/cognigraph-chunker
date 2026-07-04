@@ -62,6 +62,9 @@ tower-http = { version = "0.6", features = ["cors", "timeout", "limit"] }
 # URL parsing (SSRF validation)
 url = "2"
 
+# Constant-time comparison for API key auth
+subtle = "2"
+
 # Error handling
 anyhow = "1.0"
 

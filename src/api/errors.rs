@@ -45,7 +45,14 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let msg = self.0.to_string();
         let status = categorize_error(&msg);
-        let body = json!({ "error": msg });
+        // Internal errors can carry server-side detail (filesystem paths,
+        // upstream response bodies, env hints) — log them, don't return them.
+        let body = if status == StatusCode::INTERNAL_SERVER_ERROR {
+            eprintln!("[api] internal error: {:#}", self.0);
+            json!({ "error": "internal server error" })
+        } else {
+            json!({ "error": msg })
+        };
         (status, axum::Json(body)).into_response()
     }
 }
@@ -53,5 +60,40 @@ impl IntoResponse for ApiError {
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
         ApiError(err)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn body_of(resp: Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        String::from_utf8(bytes.to_vec()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_internal_errors_are_sanitized() {
+        let err = ApiError(anyhow::anyhow!(
+            "failed reading /home/deploy/.env.openai: permission denied"
+        ));
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = body_of(resp).await;
+        assert!(
+            !body.contains(".env.openai") && !body.contains("/home/deploy"),
+            "500 body must not leak internal detail: {body}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_validation_errors_keep_their_message() {
+        let err = ApiError(anyhow::anyhow!("model_path is required for onnx provider"));
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let body = body_of(resp).await;
+        assert!(body.contains("model_path is required"), "{body}");
     }
 }
