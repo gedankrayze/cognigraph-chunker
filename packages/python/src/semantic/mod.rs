@@ -102,6 +102,7 @@ impl PySemanticResult {
 ///
 /// Dispatches to the concrete provider type since EmbeddingProvider uses AFIT.
 #[pyfunction]
+#[pyo3(name = "semantic_chunk")]
 #[pyo3(signature = (text, provider, config=None, *, markdown=true))]
 pub fn py_semantic_chunk(
     py: Python<'_>,

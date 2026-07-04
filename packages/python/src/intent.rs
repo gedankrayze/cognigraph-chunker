@@ -95,6 +95,7 @@ pub struct PyIntentResult {
 
 /// Run intent-driven chunking with a provider.
 #[pyfunction]
+#[pyo3(name = "intent_chunk")]
 #[pyo3(signature = (text, provider, api_key, base_url=None, model=None, config=None, *, markdown=true))]
 #[allow(clippy::too_many_arguments)]
 pub fn py_intent_chunk(

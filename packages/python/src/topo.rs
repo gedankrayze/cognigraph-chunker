@@ -119,6 +119,7 @@ fn convert_classification(sc: SectionClassification) -> PySectionClassification 
 
 /// Run topology-aware chunking.
 #[pyfunction]
+#[pyo3(name = "topo_chunk")]
 #[pyo3(signature = (text, api_key, base_url=None, model=None, config=None))]
 pub fn py_topo_chunk(
     _py: Python<'_>,

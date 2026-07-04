@@ -2,23 +2,23 @@ import cognigraph_chunker as cc
 
 
 def test_split_at_delimiters_basic():
-    offsets = cc.py_split_at_delimiters("Hello. World. Test.", b".")
+    offsets = cc.split_at_delimiters("Hello. World. Test.", b".")
     assert len(offsets) == 3
     assert offsets[0] == (0, 6)
 
 
 def test_split_at_delimiters_include_next():
-    offsets = cc.py_split_at_delimiters("Hello. World.", b".", include_delim="next")
+    offsets = cc.split_at_delimiters("Hello. World.", b".", include_delim="next")
     assert offsets[0] == (0, 5)  # "Hello"
 
 
 def test_split_at_delimiters_include_none():
-    offsets = cc.py_split_at_delimiters("Hello.World.", b".", include_delim="none")
+    offsets = cc.split_at_delimiters("Hello.World.", b".", include_delim="none")
     assert len(offsets) >= 2
 
 
 def test_split_at_patterns():
-    offsets = cc.py_split_at_patterns("Hello. World. Test.", [b". "])
+    offsets = cc.split_at_patterns("Hello. World. Test.", [b". "])
     assert len(offsets) == 3
 
 
@@ -36,5 +36,5 @@ def test_pattern_splitter_min_chars():
 
 
 def test_empty_text():
-    offsets = cc.py_split_at_delimiters("", b".")
+    offsets = cc.split_at_delimiters("", b".")
     assert offsets == []
