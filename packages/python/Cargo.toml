@@ -1,7 +1,9 @@
 [package]
 name = "cognigraph-python"
-version = "0.2.0"
+version = "2.2.0"
 edition = "2024"
+# Distributed via PyPI (maturin), never crates.io
+publish = false
 
 [lib]
 name = "cognigraph_chunker"
@@ -9,7 +11,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 cognigraph-chunker = { path = "../.." }
-pyo3 = { version = "0.28", features = ["extension-module"] }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py39"] }
 numpy = "0.28"
 tokio = { version = "1.51", features = ["rt-multi-thread"] }
 anyhow = "1.0"

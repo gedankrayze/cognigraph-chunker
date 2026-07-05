@@ -3,9 +3,24 @@ members = [".", "packages/python"]
 
 [package]
 name = "cognigraph-chunker"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2024"
 license = "MIT"
+description = "Fast text chunking toolkit: fixed-size, delimiter, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive strategies with CLI, REST API, and Python bindings"
+repository = "https://github.com/gedankrayze/cognigraph-chunker"
+readme = "README.md"
+keywords = ["chunking", "rag", "embeddings", "nlp", "text-processing"]
+categories = ["text-processing", "command-line-utilities"]
+exclude = [
+    "docs/",
+    "tests/python/",
+    "packages/",
+    ".github/",
+    "models/",
+    ".env*",
+    ".claude/",
+    ".DS_Store",
+]
 
 [lib]
 name = "cognigraph_chunker"
