@@ -4,6 +4,7 @@
 //! builder) and sent requests fire-once. This module is the single place
 //! for client policy (timeouts, no redirects) and transient-failure retry.
 
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -11,9 +12,25 @@ use reqwest::StatusCode;
 
 const MAX_ATTEMPTS: u32 = 3;
 
+/// Install the rustls `ring` crypto provider as the process default.
+///
+/// reqwest is built with `rustls-no-provider` (to avoid aws-lc-sys, which
+/// doesn't cross-compile for aarch64), so a provider must be installed
+/// before the first TLS client is built. Every client goes through
+/// `build_client`, making this the single, race-free init point.
+fn ensure_crypto_provider() {
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        // Ignore the error: a host application may have already installed a
+        // provider, which is fine.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    });
+}
+
 /// Build the standard HTTP client used by all providers:
 /// no redirects (SSRF defense), 30s connect / 120s total timeouts.
 pub fn build_client(danger_accept_invalid_certs: bool) -> Result<reqwest::Client> {
+    ensure_crypto_provider();
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(30))

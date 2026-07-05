@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "cognigraph-chunker"
-version = "2.2.2"
+version = "2.2.3"
 description = "Fast text chunking toolkit: fixed-size, delimiter, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive strategies"
 readme = "README.md"
 license = { text = "MIT" }

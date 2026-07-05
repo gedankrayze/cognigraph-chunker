@@ -3,7 +3,7 @@ members = [".", "packages/python"]
 
 [package]
 name = "cognigraph-chunker"
-version = "2.2.2"
+version = "2.2.3"
 edition = "2024"
 license = "MIT"
 description = "Fast text chunking toolkit: fixed-size, delimiter, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive strategies with CLI, REST API, and Python bindings"
@@ -49,13 +49,17 @@ tokio = { version = "1.51", features = ["full"] }
 # HTTP client (embedding providers)
 # rustls instead of the default native-tls: no system OpenSSL dependency,
 # so wheels build in the manylinux container and binaries stay portable.
+# rustls-no-provider (not `rustls`) avoids the default aws-lc-sys crypto
+# backend, which fails to cross-compile for aarch64 in the manylinux
+# container; we install the `ring` provider ourselves (see http_util).
 reqwest = { version = "0.13", default-features = false, features = [
     "json",
     "form",
     "charset",
     "http2",
-    "rustls",
+    "rustls-no-provider",
 ] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 # ONNX Runtime (local embeddings). We re-enable ort's default features
 # EXCEPT `download-binaries` + `tls-native`, whose ureq → native-tls →
