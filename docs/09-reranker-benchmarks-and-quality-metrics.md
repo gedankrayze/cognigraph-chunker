@@ -84,18 +84,18 @@ The baseline runs cognitive chunking without any reranker — pure heuristic bou
 
 ## Results
 
-| Metric | Baseline | ONNX (local) | NVIDIA Nemotron 1B | Cloudflare BGE | Cohere v3.5\* | OAuth (corporate)\* |
+| Metric | Baseline | ONNX (local) | NVIDIA Nemotron 1B | Cloudflare BGE | Cohere v3.5 | OAuth (corporate)\* |
 |--------|----------|--------------|--------------------|----------------|--------------|-------------------|
-| **Time** | 1.7s | 3.1s | 4.6s | 8.3s | 15.5s | 40.7s |
-| **Chunks** | 30 | 43 | 44 | 43 | 33 | 29 |
-| **Avg tokens** | 164 | 114 | 112 | 114 | 54 | 62 |
-| **Max tokens** | 522 | 272 | 272 | 272 | 130 | 181 |
-| **Entity orphan** | 0.0% | 0.0% | 0.0% | 0.0% | 3.1% | 3.6% |
+| **Time** | 1.7s | 3.1s | 4.6s | 8.3s | 8.4s | 40.7s |
+| **Chunks** | 30 | 43 | 44 | 43 | 36 | 29 |
+| **Avg tokens** | 164 | 114 | 112 | 114 | 137 | 62 |
+| **Max tokens** | 522 | 272 | 272 | 272 | 460 | 181 |
+| **Entity orphan** | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 3.6% |
 | **Pronoun boundary** | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 | **Heading attachment** | 100% | 100% | 100% | 100% | 100% | 100% |
 | **Discourse break** | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% | 0.0% |
 
-\* Prior-round measurements (February 2026: whitespace-based token counts, pre-fix reranker blending, smaller revision of the benchmark document) — not directly comparable to the other columns. Pending a credential refresh for a re-run.
+\* Prior-round measurement (February 2026: whitespace-based token counts, pre-fix reranker blending, smaller revision of the benchmark document) — not directly comparable to the other columns.
 
 The Cloudflare column was measured against the direct Workers AI API
 (no AI Gateway routing); routing through an AI Gateway adds a proxy
@@ -131,13 +131,13 @@ With the corrected reranker blending (July 2026), Cloudflare BGE produces result
 
 If you already hold Cloudflare credentials (shared with the embedding provider), this is a solid managed option — slower than NVIDIA but with no additional vendor relationship.
 
-### Cohere: Pending Re-Run
+### Cohere: Perfect Quality, Gentler Splitting
 
-*(Figures in this section and the OAuth section are from the February 2026 round — see the table note.)*
+Re-measured in the July 2026 round: 36 chunks, 460 max tokens, zero across all error rates, in 8.4 seconds. As with Cloudflare, the ~3.1% entity orphan rate from the February round turned out to be the blending artifact — with the corrected delta it disappears entirely.
 
-Cohere produced more chunks (33) with smaller average sizes and a ~3.1% entity orphan rate in the prior round. Given that Cloudflare's orphan rate proved to be a blending artifact rather than a model property, Cohere's number deserves the same re-examination once credentials are refreshed.
+Cohere splits less aggressively than the other rerankers (36 chunks vs 43–44), leaving one notably larger chunk (460 tokens vs 272). If you want maximum granularity, ONNX/NVIDIA/Cloudflare deliver more; if slightly larger, fewer chunks suit your retrieval window, Cohere's partitioning is equally clean.
 
-Cohere v3.5 and v4.0-fast produced identical results on this document, suggesting the models score ambiguous boundaries similarly. The "fast" variant may show advantages on larger documents or higher throughput workloads.
+In the February round, Cohere v3.5 and v4.0-fast produced identical results on this document, suggesting the models score ambiguous boundaries similarly. The "fast" variant may show advantages on larger documents or higher throughput workloads.
 
 ### OAuth (Corporate Gateway): Functional but Slow
 
@@ -205,4 +205,4 @@ cognigraph-chunker cognitive -i doc.md -p openai --reranker nvidia
 
 Cross-encoder reranking is a precision tool, not a necessity. The cognitive pipeline's heuristic scoring already produces excellent results. Rerankers shine when you need finer granularity (smaller chunks for tighter retrieval windows) without sacrificing entity coherence.
 
-The standout finding is that a local 22 MB ONNX model (`ms-marco-MiniLM-L-6-v2`) matches the best cloud APIs in quality while adding only ~1.4 seconds of overhead. If you can bundle the model, there is no reason to pay for cloud reranking. When local inference is not feasible, NVIDIA's Nemotron 1B (fastest) and Cloudflare BGE (shared credentials with the embedding provider) both deliver the same perfect quality metrics — under the corrected reranker blending, the quality gap between providers that the earlier round suggested has essentially vanished.
+The standout finding is that a local 22 MB ONNX model (`ms-marco-MiniLM-L-6-v2`) matches the best cloud APIs in quality while adding only ~1.4 seconds of overhead. If you can bundle the model, there is no reason to pay for cloud reranking. When local inference is not feasible, NVIDIA's Nemotron 1B (fastest), Cloudflare BGE (shared credentials with the embedding provider), and Cohere v3.5 (gentler splitting) all deliver perfect quality metrics — under the corrected reranker blending, the quality gap between providers that the earlier round suggested has essentially vanished. The remaining differences are speed and granularity, not correctness.
