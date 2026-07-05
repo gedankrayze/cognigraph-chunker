@@ -21,6 +21,7 @@ Fast text chunking toolkit with fixed-size, delimiter-based, semantic, cognition
 - **Graph export** -- output chunks as nodes with adjacency and shared-entity edges, ready for graph databases
 - **Ambiguous boundary refinement** -- optional cross-encoder reranking for precision improvement on uncertain boundaries (NVIDIA NIM, Cohere, Cloudflare Workers AI, OAuth-authenticated endpoints, or local ONNX)
 - **Merge post-processing** -- combine small chunks into token-budget groups across all strategies
+- **Built for flaky networks** -- automatic retry with backoff on transient provider errors (429/5xx), per-provider embedding batch limits, bounded-concurrency LLM and reranker fan-out, and server-side ONNX model caching
 - **Output formats** -- plain text, JSON, and JSONL
 
 ## Methods at a Glance
@@ -1171,7 +1172,7 @@ ONNX Runtime must be available at runtime when using ONNX providers. Install it 
 cognigraph-chunker semantic -i doc.md -p onnx --model-path ./models/all-MiniLM-L6-v2
 ```
 
-**Cloudflare Workers AI** -- Uses Cloudflare's hosted embedding models (e.g., `@cf/baai/bge-m3`, `@cf/qwen/qwen3-embedding-0.6b`). Set credentials via environment variables or `.env.cloudflare` file. The token is verified at startup. Optionally route requests through an AI Gateway for logging and rate limiting.
+**Cloudflare Workers AI** -- Uses Cloudflare's hosted embedding models (e.g., `@cf/baai/bge-m3`, `@cf/qwen/qwen3-embedding-0.6b`). Set credentials via environment variables or `.env.cloudflare` file. The token is verified at startup. Optionally route requests through an AI Gateway for logging and rate limiting: routing uses the `cf-aig-gateway-id` header on the direct Workers AI endpoint, so the API token only needs Workers AI permission (no AI Gateway scope) and account-owned tokens work.
 
 ```sh
 cognigraph-chunker semantic -i doc.md -p cloudflare
