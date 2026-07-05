@@ -97,9 +97,13 @@ The baseline runs cognitive chunking without any reranker — pure heuristic bou
 
 \* Prior-round measurement (February 2026: whitespace-based token counts, pre-fix reranker blending, smaller revision of the benchmark document) — not directly comparable to the other columns.
 
-The Cloudflare column was measured against the direct Workers AI API
-(no AI Gateway routing); routing through an AI Gateway adds a proxy
-hop and requires a token with the AI Gateway Run permission.
+The Cloudflare column was measured against the direct Workers AI API.
+Routing the same run through an AI Gateway (via the
+`cf-aig-gateway-id` header, which the provider now uses — it
+authenticates like a direct call, unlike the gateway URL form that
+rejects account-owned API tokens) produced identical chunks at ~11.6s
+warm; the first request after idle can be several times slower while
+the gateway spins up.
 
 ### Provider Details
 

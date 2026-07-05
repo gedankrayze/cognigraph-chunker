@@ -473,20 +473,12 @@ impl CloudflareReranker {
     }
 
     fn endpoint_url(&self) -> String {
-        match &self.ai_gateway {
-            Some(gateway) => {
-                format!(
-                    "https://gateway.ai.cloudflare.com/v1/{}/{}/workers-ai/{}",
-                    self.account_id, gateway, self.model
-                )
-            }
-            None => {
-                format!(
-                    "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
-                    self.account_id, self.model
-                )
-            }
-        }
+        // Always the direct Workers AI endpoint; gateway routing goes via the
+        // `cf-aig-gateway-id` header (see CloudflareProvider::endpoint_url).
+        format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
+            self.account_id, self.model
+        )
     }
 }
 
@@ -549,11 +541,9 @@ impl RerankerProvider for CloudflareReranker {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.auth_token));
 
-        if self.ai_gateway.is_some() {
-            req_builder = req_builder.header(
-                "cf-aig-authorization",
-                format!("Bearer {}", self.auth_token),
-            );
+        // Route through the AI Gateway (logging, rate limiting) via header
+        if let Some(ref gateway) = self.ai_gateway {
+            req_builder = req_builder.header("cf-aig-gateway-id", gateway);
         }
 
         let (status, body) =

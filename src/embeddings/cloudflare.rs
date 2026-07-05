@@ -86,20 +86,16 @@ impl CloudflareProvider {
     }
 
     fn endpoint_url(&self) -> String {
-        match &self.ai_gateway {
-            Some(gateway) => {
-                format!(
-                    "https://gateway.ai.cloudflare.com/v1/{}/{}/workers-ai/{}",
-                    self.account_id, gateway, self.model
-                )
-            }
-            None => {
-                format!(
-                    "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
-                    self.account_id, self.model
-                )
-            }
-        }
+        // Always the direct Workers AI endpoint. Gateway routing happens via
+        // the `cf-aig-gateway-id` header instead of the
+        // gateway.ai.cloudflare.com URL: the URL form forwards the
+        // Authorization header through an internal hop that rejects
+        // account-owned API tokens, while the header form authenticates
+        // exactly like a direct call.
+        format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
+            self.account_id, self.model
+        )
     }
 }
 
@@ -167,12 +163,9 @@ impl CloudflareProvider {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.auth_token));
 
-        // AI Gateway requires its own auth header in addition to the provider auth
-        if self.ai_gateway.is_some() {
-            req_builder = req_builder.header(
-                "cf-aig-authorization",
-                format!("Bearer {}", self.auth_token),
-            );
+        // Route through the AI Gateway (logging, rate limiting) via header
+        if let Some(ref gateway) = self.ai_gateway {
+            req_builder = req_builder.header("cf-aig-gateway-id", gateway);
         }
 
         let (status, body) = crate::http_util::send_with_retry(
@@ -239,4 +232,34 @@ pub fn resolve_cloudflare_credentials(
     })?;
 
     Ok((token, acct, gw))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gateway_routing_uses_direct_endpoint() {
+        // Gateway routing must go via the cf-aig-gateway-id header on the
+        // direct Workers AI endpoint. The gateway.ai.cloudflare.com URL form
+        // forwards Authorization through an internal hop that rejects
+        // account-owned API tokens (401 code 10000) even when the same token
+        // works against the direct API.
+        let with_gateway = CloudflareProvider::new(
+            "token".into(),
+            "acct-id".into(),
+            None,
+            Some("my-gateway".into()),
+        )
+        .unwrap();
+        let without_gateway =
+            CloudflareProvider::new("token".into(), "acct-id".into(), None, None).unwrap();
+
+        assert_eq!(with_gateway.endpoint_url(), without_gateway.endpoint_url());
+        assert!(
+            with_gateway
+                .endpoint_url()
+                .starts_with("https://api.cloudflare.com/client/v4/accounts/acct-id/ai/run/")
+        );
+    }
 }
