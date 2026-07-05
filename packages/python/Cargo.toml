@@ -1,6 +1,6 @@
 [package]
 name = "cognigraph-python"
-version = "2.2.3"
+version = "2.2.4"
 edition = "2024"
 # Distributed via PyPI (maturin), never crates.io
 publish = false
