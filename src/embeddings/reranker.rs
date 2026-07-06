@@ -4,7 +4,8 @@
 //! but are expensive. Used only on ambiguous boundaries (Phase 3).
 
 use super::ensure_onnx_runtime_available;
-use anyhow::Result;
+use super::oauth_token::OAuthTokenSource;
+use anyhow::{Context, Result};
 
 /// Trait for reranking providers (cross-encoders).
 ///
@@ -31,9 +32,10 @@ pub trait RerankerProvider: Send + Sync {
 /// Compatible with models like:
 /// - `cross-encoder/ms-marco-MiniLM-L-6-v2`
 /// - `BAAI/bge-reranker-base`
+#[derive(Clone)]
 pub struct OnnxReranker {
-    session: std::sync::Mutex<ort::session::Session>,
-    tokenizer: tokenizers::Tokenizer,
+    session: std::sync::Arc<std::sync::Mutex<ort::session::Session>>,
+    tokenizer: std::sync::Arc<tokenizers::Tokenizer>,
     model_name: String,
 }
 
@@ -72,19 +74,23 @@ impl OnnxReranker {
             .unwrap_or_else(|| "onnx-reranker".to_string());
 
         Ok(Self {
-            session: std::sync::Mutex::new(session),
-            tokenizer,
+            session: std::sync::Arc::new(std::sync::Mutex::new(session)),
+            tokenizer: std::sync::Arc::new(tokenizer),
             model_name,
         })
     }
+}
 
-    /// Score a single text pair. Returns a relevance score in [0.0, 1.0].
-    fn score_pair(&self, text_a: &str, text_b: &str) -> Result<f64> {
-        use anyhow::Context;
-
+/// Score a single text pair on the blocking pool. Returns a score in [0.0, 1.0].
+fn onnx_score_pair(
+    session: &std::sync::Mutex<ort::session::Session>,
+    tokenizer: &tokenizers::Tokenizer,
+    text_a: &str,
+    text_b: &str,
+) -> Result<f64> {
+    {
         // Cross-encoders encode both texts as a single input (text_a [SEP] text_b)
-        let encoding = self
-            .tokenizer
+        let encoding = tokenizer
             .encode((text_a, text_b), true)
             .map_err(|e| anyhow::anyhow!("Tokenization failed: {e}"))?;
 
@@ -104,8 +110,7 @@ impl OnnxReranker {
         let token_type_ids_val = ort::value::Value::from_array(([1, seq_len], token_type_ids))
             .context("Failed to create token_type_ids")?;
 
-        let mut session = self
-            .session
+        let mut session = session
             .lock()
             .map_err(|e| anyhow::anyhow!("Session lock poisoned: {e}"))?;
 
@@ -135,11 +140,21 @@ impl OnnxReranker {
 
 impl RerankerProvider for OnnxReranker {
     async fn rerank(&self, query: &str, documents: &[&str]) -> Result<Vec<f64>> {
-        let mut scores = Vec::with_capacity(documents.len());
-        for doc in documents {
-            scores.push(self.score_pair(query, doc)?);
-        }
-        Ok(scores)
+        // Cross-encoder inference is CPU-bound: run the whole batch on the
+        // blocking pool instead of stalling a tokio worker thread.
+        let query = query.to_string();
+        let documents: Vec<String> = documents.iter().map(|d| d.to_string()).collect();
+        let session = self.session.clone();
+        let tokenizer = self.tokenizer.clone();
+
+        tokio::task::spawn_blocking(move || {
+            documents
+                .iter()
+                .map(|doc| onnx_score_pair(&session, &tokenizer, &query, doc))
+                .collect()
+        })
+        .await
+        .context("ONNX reranker task panicked")?
     }
 
     fn model_name(&self) -> &str {
@@ -170,11 +185,7 @@ pub struct NvidiaReranker {
 
 impl NvidiaReranker {
     pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for NVIDIA reranker")?;
+        let client = crate::http_util::build_client(false)?;
 
         let base = base_url
             .unwrap_or_else(|| "https://ai.api.nvidia.com/v1".to_string())
@@ -189,16 +200,19 @@ impl NvidiaReranker {
         })
     }
 
-    /// Create from environment variables.
+    /// Create from environment variables or `.env.nvidia` file.
     ///
     /// - `NVIDIA_API_KEY` (required)
     /// - `NVIDIA_RERANK_BASE_URL` (optional, defaults to `https://ai.api.nvidia.com/v1`)
     /// - `NVIDIA_RERANK_MODEL` (optional, defaults to `nv-rerank-qa-mistral-4b:1`)
     pub fn from_env() -> Result<Self> {
-        let api_key = std::env::var("NVIDIA_API_KEY")
+        use crate::config::resolve_setting;
+
+        const FILE: &str = ".env.nvidia";
+        let api_key = resolve_setting(&None, "NVIDIA_API_KEY", FILE)
             .context("NVIDIA_API_KEY environment variable not set")?;
-        let base_url = std::env::var("NVIDIA_RERANK_BASE_URL").ok();
-        let model = std::env::var("NVIDIA_RERANK_MODEL").ok();
+        let base_url = resolve_setting(&None, "NVIDIA_RERANK_BASE_URL", FILE);
+        let model = resolve_setting(&None, "NVIDIA_RERANK_MODEL", FILE);
         Self::new(api_key, base_url, model)
     }
 }
@@ -262,21 +276,15 @@ impl RerankerProvider for NvidiaReranker {
                 .collect(),
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Accept", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to NVIDIA rerank API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read NVIDIA response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Accept", "application/json")
+                .json(&request),
+            "NVIDIA rerank",
+        )
+        .await?;
 
         if !status.is_success() {
             anyhow::bail!("NVIDIA rerank API error ({}): {}", status, body);
@@ -322,11 +330,7 @@ pub struct CohereReranker {
 
 impl CohereReranker {
     pub fn new(api_key: String, base_url: Option<String>, model: Option<String>) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for Cohere reranker")?;
+        let client = crate::http_util::build_client(false)?;
 
         Ok(Self {
             client,
@@ -336,16 +340,19 @@ impl CohereReranker {
         })
     }
 
-    /// Create from environment variables.
+    /// Create from environment variables or `.env.cohere` file.
     ///
     /// - `COHERE_API_KEY` (required)
     /// - `COHERE_RERANK_BASE_URL` (optional, defaults to `https://api.cohere.com/v2`)
     /// - `COHERE_RERANK_MODEL` (optional, defaults to `rerank-v3.5`)
     pub fn from_env() -> Result<Self> {
-        let api_key = std::env::var("COHERE_API_KEY")
+        use crate::config::resolve_setting;
+
+        const FILE: &str = ".env.cohere";
+        let api_key = resolve_setting(&None, "COHERE_API_KEY", FILE)
             .context("COHERE_API_KEY environment variable not set")?;
-        let base_url = std::env::var("COHERE_RERANK_BASE_URL").ok();
-        let model = std::env::var("COHERE_RERANK_MODEL").ok();
+        let base_url = resolve_setting(&None, "COHERE_RERANK_BASE_URL", FILE);
+        let model = resolve_setting(&None, "COHERE_RERANK_MODEL", FILE);
         Self::new(api_key, base_url, model)
     }
 }
@@ -384,21 +391,15 @@ impl RerankerProvider for CohereReranker {
             return_documents: false,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to Cohere rerank API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Cohere response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&request),
+            "Cohere rerank",
+        )
+        .await?;
 
         if !status.is_success() {
             anyhow::bail!("Cohere rerank API error ({}): {}", status, body);
@@ -449,11 +450,7 @@ impl CloudflareReranker {
         model: Option<String>,
         ai_gateway: Option<String>,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for Cloudflare reranker")?;
+        let client = crate::http_util::build_client(false)?;
 
         Ok(Self {
             client,
@@ -470,25 +467,18 @@ impl CloudflareReranker {
     pub fn from_env() -> Result<Self> {
         let (token, account_id, gateway) =
             super::cloudflare::resolve_cloudflare_credentials(&None, &None, &None)?;
-        let model = std::env::var("CLOUDFLARE_RERANK_MODEL").ok();
+        let model =
+            crate::config::resolve_setting(&None, "CLOUDFLARE_RERANK_MODEL", ".env.cloudflare");
         Self::new(token, account_id, model, gateway)
     }
 
     fn endpoint_url(&self) -> String {
-        match &self.ai_gateway {
-            Some(gateway) => {
-                format!(
-                    "https://gateway.ai.cloudflare.com/v1/{}/{}/workers-ai/{}",
-                    self.account_id, gateway, self.model
-                )
-            }
-            None => {
-                format!(
-                    "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
-                    self.account_id, self.model
-                )
-            }
-        }
+        // Always the direct Workers AI endpoint; gateway routing goes via the
+        // `cf-aig-gateway-id` header (see CloudflareProvider::endpoint_url).
+        format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
+            self.account_id, self.model
+        )
     }
 }
 
@@ -551,24 +541,14 @@ impl RerankerProvider for CloudflareReranker {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.auth_token));
 
-        if self.ai_gateway.is_some() {
-            req_builder = req_builder.header(
-                "cf-aig-authorization",
-                format!("Bearer {}", self.auth_token),
-            );
+        // Route through the AI Gateway (logging, rate limiting) via header
+        if let Some(ref gateway) = self.ai_gateway {
+            req_builder = req_builder.header("cf-aig-gateway-id", gateway);
         }
 
-        let response = req_builder
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to Cloudflare rerank API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Cloudflare rerank response body")?;
+        let (status, body) =
+            crate::http_util::send_with_retry(req_builder.json(&request), "Cloudflare rerank")
+                .await?;
 
         if !status.is_success() {
             anyhow::bail!("Cloudflare rerank API error ({}): {}", status, body);
@@ -615,19 +595,10 @@ impl RerankerProvider for CloudflareReranker {
 /// The endpoint path is configurable via `OAUTH_RERANK_PATH` (default: `/rerank`).
 pub struct OAuthReranker {
     client: reqwest::Client,
-    token_url: String,
-    client_id: String,
-    client_secret: String,
-    scope: Option<String>,
+    token_source: OAuthTokenSource,
     base_url: String,
     rerank_path: String,
     model: String,
-    token_cache: std::sync::Mutex<Option<OAuthCachedToken>>,
-}
-
-struct OAuthCachedToken {
-    access_token: String,
-    expires_at: std::time::Instant,
 }
 
 impl OAuthReranker {
@@ -642,23 +613,16 @@ impl OAuthReranker {
         model: Option<String>,
         danger_accept_invalid_certs: bool,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .danger_accept_invalid_certs(danger_accept_invalid_certs)
-            .build()
-            .context("Failed to build HTTP client for OAuth reranker")?;
+        let client = crate::http_util::build_client(danger_accept_invalid_certs)?;
+        let token_source =
+            OAuthTokenSource::new(client.clone(), token_url, client_id, client_secret, scope);
 
         Ok(Self {
             client,
-            token_url,
-            client_id,
-            client_secret,
-            scope,
+            token_source,
             base_url: base_url.trim_end_matches('/').to_string(),
             rerank_path: rerank_path.unwrap_or_else(|| "/rerank".to_string()),
             model: model.unwrap_or_else(|| "rerank-default".to_string()),
-            token_cache: std::sync::Mutex::new(None),
         })
     }
 
@@ -668,10 +632,12 @@ impl OAuthReranker {
     /// - `OAUTH_RERANK_PATH` (optional, default: `/rerank`)
     /// - `OAUTH_RERANK_MODEL` (optional)
     pub fn from_env(danger_accept_invalid_certs: bool) -> Result<Self> {
+        use crate::config::resolve_setting;
+
         let creds =
             super::oauth::resolve_oauth_credentials(&None, &None, &None, &None, &None, &None)?;
-        let rerank_path = std::env::var("OAUTH_RERANK_PATH").ok();
-        let model = std::env::var("OAUTH_RERANK_MODEL").ok();
+        let rerank_path = resolve_setting(&None, "OAUTH_RERANK_PATH", ".env.oauth");
+        let model = resolve_setting(&None, "OAUTH_RERANK_MODEL", ".env.oauth");
         Self::new(
             creds.token_url,
             creds.client_id,
@@ -684,80 +650,10 @@ impl OAuthReranker {
         )
     }
 
-    /// Acquire a valid access token, using the cache if not expired.
-    async fn get_token(&self) -> Result<String> {
-        {
-            let cache = self
-                .token_cache
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Token cache lock poisoned: {e}"))?;
-            if let Some(ref cached) = *cache
-                && std::time::Instant::now() + std::time::Duration::from_secs(60)
-                    < cached.expires_at
-            {
-                return Ok(cached.access_token.clone());
-            }
-        }
-
-        let mut form = vec![
-            ("grant_type", "client_credentials"),
-            ("client_id", &*self.client_id),
-            ("client_secret", &*self.client_secret),
-        ];
-        let scope_val;
-        if let Some(ref s) = self.scope {
-            scope_val = s.clone();
-            form.push(("scope", &scope_val));
-        }
-
-        let response = self
-            .client
-            .post(&self.token_url)
-            .form(&form)
-            .send()
-            .await
-            .context("Failed to request OAuth token for reranker")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read OAuth token response")?;
-
-        if !status.is_success() {
-            anyhow::bail!("OAuth token request failed ({}): {}", status, body);
-        }
-
-        let token_resp: OAuthTokenResponse =
-            serde_json::from_str(&body).context("Failed to parse OAuth token response")?;
-
-        let expires_at =
-            std::time::Instant::now() + std::time::Duration::from_secs(token_resp.expires_in);
-        let access_token = token_resp.access_token.clone();
-
-        let mut cache = self
-            .token_cache
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Token cache lock poisoned: {e}"))?;
-        *cache = Some(OAuthCachedToken {
-            access_token: token_resp.access_token,
-            expires_at,
-        });
-
-        Ok(access_token)
-    }
-
     /// Verify that we can acquire a token.
     pub async fn verify_credentials(&self) -> Result<()> {
-        self.get_token().await?;
-        Ok(())
+        self.token_source.get_token().await.map(|_| ())
     }
-}
-
-#[derive(serde::Deserialize)]
-struct OAuthTokenResponse {
-    access_token: String,
-    expires_in: u64,
 }
 
 /// Request format: Cohere-compatible `{ model, query, documents }`.
@@ -786,7 +682,7 @@ impl RerankerProvider for OAuthReranker {
             return Ok(vec![]);
         }
 
-        let token = self.get_token().await?;
+        let token = self.token_source.get_token().await?;
         let url = format!("{}{}", self.base_url, self.rerank_path);
 
         let request = OAuthRerankRequest {
@@ -795,21 +691,15 @@ impl RerankerProvider for OAuthReranker {
             documents,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to OAuth rerank API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read OAuth rerank response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .header("Content-Type", "application/json")
+                .json(&request),
+            "OAuth rerank",
+        )
+        .await?;
 
         if !status.is_success() {
             anyhow::bail!("OAuth rerank API error ({}): {}", status, body);
@@ -869,5 +759,3 @@ impl RerankerProvider for AnyReranker {
         }
     }
 }
-
-use anyhow::Context;

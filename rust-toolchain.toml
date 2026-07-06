@@ -1,0 +1,5 @@
+# Pin the toolchain so a new stable release cannot turn fresh clippy lints
+# into CI failures. Bump deliberately (and fix any new lints in the same PR).
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]

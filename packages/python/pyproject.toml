@@ -4,8 +4,27 @@ build-backend = "maturin"
 
 [project]
 name = "cognigraph-chunker"
-version = "0.2.0"
+version = "2.2.4"
+description = "Fast text chunking toolkit: fixed-size, delimiter, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive strategies"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.9"
+authors = [{ name = "Gedank Rayze", email = "info@gedankrayze.com" }]
+keywords = ["chunking", "rag", "embeddings", "nlp", "text-splitting", "semantic-chunking"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Text Processing :: General",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://github.com/gedankrayze/cognigraph-chunker"
+Repository = "https://github.com/gedankrayze/cognigraph-chunker"
+Documentation = "https://github.com/gedankrayze/cognigraph-chunker#readme"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

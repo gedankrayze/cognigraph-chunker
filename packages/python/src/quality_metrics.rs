@@ -178,6 +178,7 @@ impl From<&PyMetricConfig> for MetricConfig {
 
 /// Evaluate quality metrics for a set of chunks against the original text.
 #[pyfunction]
+#[pyo3(name = "evaluate_chunks")]
 #[pyo3(signature = (original_text, chunks, provider, config=None))]
 pub fn py_evaluate_chunks(
     py: Python<'_>,

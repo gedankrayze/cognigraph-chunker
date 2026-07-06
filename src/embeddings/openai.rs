@@ -21,11 +21,7 @@ impl OpenAiProvider {
         base_url: Option<String>,
         model: Option<String>,
     ) -> anyhow::Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for OpenAI provider")?;
+        let client = crate::http_util::build_client(false)?;
         Ok(Self {
             client,
             api_key,
@@ -61,12 +57,21 @@ struct ErrorDetail {
     message: String,
 }
 
+/// Maximum inputs per request — OpenAI caps embedding batches at 2048 inputs.
+const MAX_BATCH: usize = 2048;
+
 impl EmbeddingProvider for OpenAiProvider {
     async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(MAX_BATCH) {
+            out.extend(self.embed_batch(batch).await?);
         }
+        Ok(out)
+    }
+}
 
+impl OpenAiProvider {
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
         let url = format!("{}/embeddings", self.base_url);
 
         let request = EmbeddingRequest {
@@ -74,20 +79,14 @@ impl EmbeddingProvider for OpenAiProvider {
             input: texts,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to OpenAI embeddings API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read OpenAI response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&request),
+            "OpenAI embeddings",
+        )
+        .await?;
 
         if !status.is_success() {
             if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {

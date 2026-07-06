@@ -210,6 +210,7 @@ impl From<AdaptiveResult> for PyAdaptiveResult {
 
 /// Run adaptive chunking, selecting the best method from the configured candidates.
 #[pyfunction]
+#[pyo3(name = "adaptive_chunk")]
 #[pyo3(signature = (text, provider, api_key=None, base_url=None, model=None, config=None))]
 pub fn py_adaptive_chunk(
     py: Python<'_>,

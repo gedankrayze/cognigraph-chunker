@@ -8,7 +8,7 @@ The idea is simple: walk through the text in steps of N bytes, and each step pro
 
 Boundary-aware chunking improves on this by searching backward from the cut point to find a nearby delimiter. Instead of cutting at exactly byte 4096, it looks for the last newline, period, or question mark before that position and splits there instead. The chunk ends up slightly smaller than the target, but it ends at a natural text boundary.
 
-This backward search is the core mechanism. When the text contains delimiters — and most text contains plenty of sentence-ending punctuation and newlines — the algorithm almost always finds a good split point within the target window. Only when a stretch of text contains no delimiters at all (an extremely long word or a binary blob) does the algorithm resort to a hard split at the target size.
+This backward search is the core mechanism. When the text contains delimiters — and most text contains plenty of sentence-ending punctuation and newlines — the algorithm almost always finds a good split point within the target window. Only when a stretch of text contains no delimiters at all (an extremely long word or a binary blob) does the algorithm resort to a hard split at the target size — and even then it backs up a byte or two when needed so the split never lands in the middle of a multi-byte UTF-8 character.
 
 ### Delimiter search performance
 

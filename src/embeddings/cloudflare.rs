@@ -31,11 +31,7 @@ impl CloudflareProvider {
         model: Option<String>,
         ai_gateway: Option<String>,
     ) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for Cloudflare provider")?;
+        let client = crate::http_util::build_client(false)?;
 
         Ok(Self {
             client,
@@ -55,19 +51,13 @@ impl CloudflareProvider {
             self.account_id
         );
 
-        let response = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.auth_token))
-            .send()
-            .await
-            .context("Failed to verify Cloudflare auth token")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Cloudflare token verification response")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .get(&url)
+                .header("Authorization", format!("Bearer {}", self.auth_token)),
+            "Cloudflare token verification",
+        )
+        .await?;
 
         if !status.is_success() {
             bail!(
@@ -96,20 +86,16 @@ impl CloudflareProvider {
     }
 
     fn endpoint_url(&self) -> String {
-        match &self.ai_gateway {
-            Some(gateway) => {
-                format!(
-                    "https://gateway.ai.cloudflare.com/v1/{}/{}/workers-ai/{}",
-                    self.account_id, gateway, self.model
-                )
-            }
-            None => {
-                format!(
-                    "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
-                    self.account_id, self.model
-                )
-            }
-        }
+        // Always the direct Workers AI endpoint. Gateway routing happens via
+        // the `cf-aig-gateway-id` header instead of the
+        // gateway.ai.cloudflare.com URL: the URL form forwards the
+        // Authorization header through an internal hop that rejects
+        // account-owned API tokens, while the header form authenticates
+        // exactly like a direct call.
+        format!(
+            "https://api.cloudflare.com/client/v4/accounts/{}/ai/run/{}",
+            self.account_id, self.model
+        )
     }
 }
 
@@ -153,12 +139,21 @@ struct CfEmbeddingResult {
     data: Vec<Vec<f64>>,
 }
 
+/// Maximum inputs per request — Cloudflare Workers AI caps `text` at 100 items.
+const MAX_BATCH: usize = 100;
+
 impl EmbeddingProvider for CloudflareProvider {
     async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(MAX_BATCH) {
+            out.extend(self.embed_batch(batch).await?);
         }
+        Ok(out)
+    }
+}
 
+impl CloudflareProvider {
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
         let url = self.endpoint_url();
 
         let request = EmbeddingRequest { text: texts };
@@ -168,25 +163,16 @@ impl EmbeddingProvider for CloudflareProvider {
             .post(&url)
             .header("Authorization", format!("Bearer {}", self.auth_token));
 
-        // AI Gateway requires its own auth header in addition to the provider auth
-        if self.ai_gateway.is_some() {
-            req_builder = req_builder.header(
-                "cf-aig-authorization",
-                format!("Bearer {}", self.auth_token),
-            );
+        // Route through the AI Gateway (logging, rate limiting) via header
+        if let Some(ref gateway) = self.ai_gateway {
+            req_builder = req_builder.header("cf-aig-gateway-id", gateway);
         }
 
-        let response = req_builder
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send request to Cloudflare AI embeddings API")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read Cloudflare response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            req_builder.json(&request),
+            "Cloudflare AI embeddings",
+        )
+        .await?;
 
         if !status.is_success() {
             bail!("Cloudflare AI API error ({}): {}", status, body);
@@ -219,50 +205,17 @@ impl EmbeddingProvider for CloudflareProvider {
 /// Resolve Cloudflare credentials from args, env vars, or `.env.cloudflare` file.
 ///
 /// Returns `(auth_token, account_id, ai_gateway)`.
-/// Try to read a non-empty env var, returning `Some` if found.
-fn env_non_empty(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
-}
-
 pub fn resolve_cloudflare_credentials(
     auth_token: &Option<String>,
     account_id: &Option<String>,
     ai_gateway: &Option<String>,
 ) -> Result<(String, String, Option<String>)> {
-    let mut token = auth_token
-        .clone()
-        .or_else(|| env_non_empty("CLOUDFLARE_AUTH_TOKEN"));
-    let mut acct = account_id
-        .clone()
-        .or_else(|| env_non_empty("CLOUDFLARE_ACCOUNT_ID"));
-    let mut gw = ai_gateway
-        .clone()
-        .or_else(|| env_non_empty("CLOUDFLARE_AI_GATEWAY"));
+    use crate::config::resolve_setting;
 
-    // Try .env.cloudflare file for any still-missing values
-    if (token.is_none() || acct.is_none() || gw.is_none())
-        && let Ok(content) = std::fs::read_to_string(".env.cloudflare")
-    {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.starts_with('#') || line.is_empty() {
-                continue;
-            }
-            let Some((key, val)) = line.split_once('=') else {
-                continue;
-            };
-            let val = val.trim();
-            if val.is_empty() {
-                continue;
-            }
-            match key.trim() {
-                "CLOUDFLARE_AUTH_TOKEN" if token.is_none() => token = Some(val.to_string()),
-                "CLOUDFLARE_ACCOUNT_ID" if acct.is_none() => acct = Some(val.to_string()),
-                "CLOUDFLARE_AI_GATEWAY" if gw.is_none() => gw = Some(val.to_string()),
-                _ => {}
-            }
-        }
-    }
+    const FILE: &str = ".env.cloudflare";
+    let token = resolve_setting(auth_token, "CLOUDFLARE_AUTH_TOKEN", FILE);
+    let acct = resolve_setting(account_id, "CLOUDFLARE_ACCOUNT_ID", FILE);
+    let gw = resolve_setting(ai_gateway, "CLOUDFLARE_AI_GATEWAY", FILE);
 
     let token = token.ok_or_else(|| {
         anyhow::anyhow!(
@@ -279,4 +232,34 @@ pub fn resolve_cloudflare_credentials(
     })?;
 
     Ok((token, acct, gw))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gateway_routing_uses_direct_endpoint() {
+        // Gateway routing must go via the cf-aig-gateway-id header on the
+        // direct Workers AI endpoint. The gateway.ai.cloudflare.com URL form
+        // forwards Authorization through an internal hop that rejects
+        // account-owned API tokens (401 code 10000) even when the same token
+        // works against the direct API.
+        let with_gateway = CloudflareProvider::new(
+            "token".into(),
+            "acct-id".into(),
+            None,
+            Some("my-gateway".into()),
+        )
+        .unwrap();
+        let without_gateway =
+            CloudflareProvider::new("token".into(), "acct-id".into(), None, None).unwrap();
+
+        assert_eq!(with_gateway.endpoint_url(), without_gateway.endpoint_url());
+        assert!(
+            with_gateway
+                .endpoint_url()
+                .starts_with("https://api.cloudflare.com/client/v4/accounts/acct-id/ai/run/")
+        );
+    }
 }

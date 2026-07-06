@@ -16,6 +16,7 @@ fn parse_include_delim(s: &str) -> PyResult<IncludeDelim> {
 }
 
 #[pyfunction]
+#[pyo3(name = "split_at_delimiters")]
 #[pyo3(signature = (text, delimiters, *, include_delim="prev", min_chars=0))]
 pub fn py_split_at_delimiters(
     text: &str,
@@ -33,6 +34,7 @@ pub fn py_split_at_delimiters(
 }
 
 #[pyfunction]
+#[pyo3(name = "split_at_patterns")]
 #[pyo3(signature = (text, patterns, *, include_delim="prev", min_chars=0))]
 pub fn py_split_at_patterns(
     text: &str,

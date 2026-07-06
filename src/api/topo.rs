@@ -65,9 +65,15 @@ pub struct TopoChunkEntry {
 }
 
 pub async fn topo_handler(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Json(req): Json<TopoRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
+    // SSRF validation for the user-supplied LLM endpoint
+    super::validation::validate_outbound_urls(
+        state.allow_private_urls,
+        &[("llm_base_url", req.llm_base_url.as_deref())],
+    )?;
+
     // Resolve LLM config
     let llm_config = LlmConfig::resolve(&req.api_key, &req.llm_base_url, &req.topo_model)?;
     let llm_client = CompletionClient::new(llm_config)?;
@@ -114,5 +120,38 @@ fn build_response(result: TopoResult, emit_sir: bool) -> TopoResponse {
         count,
         block_count: result.block_count,
         sir,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_topo_rejects_private_llm_base_url() {
+        // llm_base_url is user-supplied and must go through the same SSRF
+        // validation as base_url — otherwise the server can be steered into
+        // POSTing to cloud metadata endpoints or internal services.
+        let state = Arc::new(AppState::default());
+        let req = TopoRequest {
+            text: String::new(),
+            topo_model: None,
+            api_key: Some("sk-test".to_string()),
+            llm_base_url: Some("http://169.254.169.254/latest/meta-data".to_string()),
+            soft_budget: 512,
+            hard_budget: 768,
+            emit_sir: false,
+        };
+
+        match topo_handler(axum::extract::State(state), Json(req)).await {
+            Err(e) => {
+                let msg = e.0.to_string();
+                assert!(
+                    msg.contains("private") || msg.contains("llm_base_url"),
+                    "expected SSRF rejection, got: {msg}"
+                );
+            }
+            Ok(_) => panic!("request with metadata-endpoint llm_base_url must be rejected"),
+        }
     }
 }

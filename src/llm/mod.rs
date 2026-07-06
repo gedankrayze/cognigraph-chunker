@@ -32,26 +32,18 @@ impl LlmConfig {
         base_url: &Option<String>,
         model: &Option<String>,
     ) -> Result<Self> {
-        let api_key = resolve_value(api_key, "OPENAI_API_KEY", ".env.openai", "OPENAI_API_KEY")
-            .ok_or_else(|| {
+        use crate::config::resolve_setting;
+
+        let api_key =
+            resolve_setting(api_key, "OPENAI_API_KEY", ".env.openai").ok_or_else(|| {
                 anyhow::anyhow!("LLM API key not found (set OPENAI_API_KEY or --api-key)")
             })?;
 
-        let base_url = resolve_value(
-            base_url,
-            "OPENAI_BASE_URL",
-            ".env.openai",
-            "OPENAI_BASE_URL",
-        )
-        .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+        let base_url = resolve_setting(base_url, "OPENAI_BASE_URL", ".env.openai")
+            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
 
-        let model = resolve_value(
-            model,
-            "COGNIGRAPH_LLM_MODEL",
-            ".env.openai",
-            "COGNIGRAPH_LLM_MODEL",
-        )
-        .unwrap_or_else(|| "gpt-4.1-mini".to_string());
+        let model = resolve_setting(model, "COGNIGRAPH_LLM_MODEL", ".env.openai")
+            .unwrap_or_else(|| "gpt-4.1-mini".to_string());
 
         Ok(Self {
             api_key,
@@ -69,11 +61,7 @@ pub struct CompletionClient {
 
 impl CompletionClient {
     pub fn new(config: LlmConfig) -> Result<Self> {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(30))
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .context("Failed to build HTTP client for LLM")?;
+        let client = crate::http_util::build_client(false)?;
         Ok(Self { client, config })
     }
 
@@ -111,20 +99,14 @@ impl CompletionClient {
             temperature: 0.0,
         };
 
-        let response = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.config.api_key))
-            .json(&request)
-            .send()
-            .await
-            .context("Failed to send LLM completion request")?;
-
-        let status = response.status();
-        let body = response
-            .text()
-            .await
-            .context("Failed to read LLM response body")?;
+        let (status, body) = crate::http_util::send_with_retry(
+            self.client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", self.config.api_key))
+                .json(&request),
+            "LLM completion",
+        )
+        .await?;
 
         if !status.is_success() {
             if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
@@ -197,39 +179,4 @@ struct ErrorResponse {
 #[derive(Deserialize)]
 struct ErrorDetail {
     message: String,
-}
-
-// ── Env resolution helper ───────────────────────────────────────────
-
-fn resolve_value(
-    explicit: &Option<String>,
-    env_var: &str,
-    dotenv_file: &str,
-    dotenv_key: &str,
-) -> Option<String> {
-    // 1. Explicit argument
-    if let Some(val) = explicit
-        && !val.is_empty()
-    {
-        return Some(val.clone());
-    }
-    // 2. Environment variable
-    if let Ok(val) = std::env::var(env_var)
-        && !val.is_empty()
-    {
-        return Some(val);
-    }
-    // 3. .env file
-    if let Ok(content) = std::fs::read_to_string(dotenv_file) {
-        for line in content.lines() {
-            let line = line.trim();
-            if let Some(val) = line.strip_prefix(&format!("{dotenv_key}=")) {
-                let val = val.trim();
-                if !val.is_empty() {
-                    return Some(val.to_string());
-                }
-            }
-        }
-    }
-    None
 }

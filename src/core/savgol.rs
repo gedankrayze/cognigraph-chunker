@@ -221,6 +221,9 @@ pub fn windowed_cross_similarity(
     if window_size.is_multiple_of(2) || window_size < 3 || n < 2 || d == 0 {
         return None;
     }
+    if embeddings.len() != n * d {
+        return None;
+    }
 
     let half_window = window_size / 2;
     let mut result = vec![0.0; n - 1];
@@ -348,6 +351,14 @@ mod tests {
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
         assert!(savgol_filter(&data, 4, 2, 0).is_none());
         assert!(savgol_filter(&data, 3, 3, 0).is_none());
+    }
+
+    #[test]
+    fn test_windowed_cross_similarity_length_mismatch_returns_none() {
+        // 4 blocks × dim 3 requires 12 values; only 9 given.
+        // Must return None instead of indexing out of bounds.
+        let embeddings = vec![0.5; 9];
+        assert!(windowed_cross_similarity(&embeddings, 4, 3, 3).is_none());
     }
 
     #[test]

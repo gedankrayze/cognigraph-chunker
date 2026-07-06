@@ -107,8 +107,8 @@ pub fn enrich_blocks_with_language(
                     && blocks[i - 1].kind == BlockKind::List,
             };
 
-            // Simple token estimate: ~4 characters per token
-            let token_estimate = text.len().div_ceil(4);
+            // Shared byte-based token estimate (~4 bytes per token)
+            let token_estimate = crate::semantic::estimate_tokens(text);
 
             BlockEnvelope {
                 text: text.to_string(),

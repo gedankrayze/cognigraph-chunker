@@ -7,11 +7,6 @@ use axum::extract::State;
 use serde::{Deserialize, Serialize};
 
 use crate::embeddings::EmbeddingProvider;
-use crate::embeddings::cloudflare::{CloudflareProvider, resolve_cloudflare_credentials};
-use crate::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
-use crate::embeddings::ollama::OllamaProvider;
-use crate::embeddings::onnx::OnnxProvider;
-use crate::embeddings::openai::OpenAiProvider;
 use crate::llm::{CompletionClient, LlmConfig, relations};
 use crate::semantic::cognitive_types::{CognitiveConfig, CognitiveResult, CognitiveWeights};
 use crate::semantic::diagnostics::signals_to_json;
@@ -19,11 +14,7 @@ use crate::semantic::{cognitive_chunk, cognitive_chunk_plain};
 
 use super::AppState;
 use super::errors::ApiError;
-use super::semantic::{ProviderParam, validate_base_url};
 
-fn default_provider() -> ProviderParam {
-    ProviderParam::Ollama
-}
 fn default_soft_budget() -> usize {
     512
 }
@@ -43,22 +34,8 @@ fn default_poly_order() -> usize {
 #[derive(Debug, Deserialize)]
 pub struct CognitiveRequest {
     pub text: String,
-    #[serde(default = "default_provider")]
-    pub provider: ProviderParam,
-    pub model: Option<String>,
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub model_path: Option<String>,
-    pub cf_auth_token: Option<String>,
-    pub cf_account_id: Option<String>,
-    pub cf_ai_gateway: Option<String>,
-    pub oauth_token_url: Option<String>,
-    pub oauth_client_id: Option<String>,
-    pub oauth_client_secret: Option<String>,
-    pub oauth_scope: Option<String>,
-    pub oauth_base_url: Option<String>,
-    #[serde(default)]
-    pub danger_accept_invalid_certs: bool,
+    #[serde(flatten)]
+    pub provider_opts: crate::embeddings::EmbedProviderOpts,
     #[serde(default = "default_soft_budget")]
     pub soft_budget: usize,
     #[serde(default = "default_hard_budget")]
@@ -138,9 +115,21 @@ pub async fn cognitive_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CognitiveRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if let Some(ref base_url) = req.base_url {
-        validate_base_url(base_url, state.allow_private_urls)?;
-    }
+    // SSRF validation for every user-supplied outbound URL
+    super::validation::validate_outbound_urls(
+        state.allow_private_urls,
+        &[
+            ("base_url", req.provider_opts.base_url.as_deref()),
+            (
+                "oauth_token_url",
+                req.provider_opts.oauth_token_url.as_deref(),
+            ),
+            (
+                "oauth_base_url",
+                req.provider_opts.oauth_base_url.as_deref(),
+            ),
+        ],
+    )?;
 
     let language = req
         .language
@@ -163,94 +152,23 @@ pub async fn cognitive_handler(
         language,
     };
 
-    let mut result = match req.provider {
-        ProviderParam::Ollama => {
-            let provider = OllamaProvider::new(req.base_url.clone(), req.model.clone())?;
-            run_cognitive(
-                &req.text,
-                &provider,
-                &config,
-                req.no_markdown,
-                &req.reranker_path,
-            )
-            .await?
-        }
-        ProviderParam::Openai => {
-            let api_key = resolve_openai_key(&req.api_key)?;
-            let provider = OpenAiProvider::new(api_key, req.base_url.clone(), req.model.clone())?;
-            run_cognitive(
-                &req.text,
-                &provider,
-                &config,
-                req.no_markdown,
-                &req.reranker_path,
-            )
-            .await?
-        }
-        ProviderParam::Onnx => {
-            let model_path = req
-                .model_path
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("model_path is required for onnx provider"))?;
-            let provider = OnnxProvider::new(model_path)?;
-            run_cognitive(
-                &req.text,
-                &provider,
-                &config,
-                req.no_markdown,
-                &req.reranker_path,
-            )
-            .await?
-        }
-        ProviderParam::Cloudflare => {
-            let (token, account_id, gateway) = resolve_cloudflare_credentials(
-                &req.cf_auth_token,
-                &req.cf_account_id,
-                &req.cf_ai_gateway,
-            )?;
-            let provider = CloudflareProvider::new(token, account_id, req.model.clone(), gateway)?;
-            provider.verify_token().await?;
-            run_cognitive(
-                &req.text,
-                &provider,
-                &config,
-                req.no_markdown,
-                &req.reranker_path,
-            )
-            .await?
-        }
-        ProviderParam::Oauth => {
-            let creds = resolve_oauth_credentials(
-                &req.oauth_token_url,
-                &req.oauth_client_id,
-                &req.oauth_client_secret,
-                &req.oauth_scope,
-                &req.oauth_base_url,
-                &req.model,
-            )?;
-            let provider = OAuthProvider::new(
-                creds.token_url,
-                creds.client_id,
-                creds.client_secret,
-                creds.scope,
-                creds.base_url,
-                creds.model,
-                req.danger_accept_invalid_certs,
-            )?;
-            provider.verify_credentials().await?;
-            run_cognitive(
-                &req.text,
-                &provider,
-                &config,
-                req.no_markdown,
-                &req.reranker_path,
-            )
-            .await?
-        }
-    };
+    let provider = super::provider::build_api_provider(&req.provider_opts, &state).await?;
+    let mut result = run_cognitive(
+        &req.text,
+        &provider,
+        &config,
+        req.no_markdown,
+        &req.reranker_path,
+        &state,
+    )
+    .await?;
 
     if req.relations {
-        let llm_config = LlmConfig::resolve(&req.api_key, &req.base_url, &None)?;
+        let llm_config = LlmConfig::resolve(
+            &req.provider_opts.api_key,
+            &req.provider_opts.base_url,
+            &None,
+        )?;
         let llm_client = CompletionClient::new(llm_config)?;
         enrich_with_relations(&mut result, &llm_client).await?;
     }
@@ -268,11 +186,50 @@ async fn enrich_with_relations(
     result: &mut CognitiveResult,
     client: &CompletionClient,
 ) -> anyhow::Result<()> {
-    for chunk in &mut result.chunks {
-        if let Ok(relations) = relations::extract_relations(client, &chunk.text).await {
-            chunk.dominant_relations = relations;
+    use futures::stream::{FuturesOrdered, StreamExt};
+
+    // Bounded-concurrency fan-out instead of N serial round trips.
+    // Futures are built in plain loops (stream::map closures around
+    // async-fn futures trip HRTB inference in the axum handler).
+    let texts: Vec<&str> = result.chunks.iter().map(|c| c.text.as_str()).collect();
+    let mut outcomes = Vec::with_capacity(texts.len());
+    for group in texts.chunks(8) {
+        let mut futures = FuturesOrdered::new();
+        for &text in group {
+            futures.push_back(relations::extract_relations(client, text));
+        }
+        while let Some(outcome) = futures.next().await {
+            outcomes.push(outcome);
         }
     }
+
+    let total = outcomes.len();
+    let mut failures = 0usize;
+    let mut first_error: Option<anyhow::Error> = None;
+
+    for (chunk, outcome) in result.chunks.iter_mut().zip(outcomes) {
+        match outcome {
+            Ok(relations) => chunk.dominant_relations = relations,
+            Err(e) => {
+                failures += 1;
+                first_error.get_or_insert(e);
+            }
+        }
+    }
+
+    // Every chunk failing means a configuration problem (bad key, wrong
+    // endpoint) — the client asked for relations and must not get a 200
+    // with silently empty results. Partial failures are logged instead.
+    if failures == total
+        && total > 0
+        && let Some(e) = first_error
+    {
+        return Err(e.context("relation extraction failed for every chunk"));
+    }
+    if failures > 0 {
+        eprintln!("[api] relation extraction failed for {failures}/{total} chunks");
+    }
+
     Ok(())
 }
 
@@ -282,9 +239,10 @@ async fn run_cognitive<P: EmbeddingProvider>(
     config: &CognitiveConfig,
     no_markdown: bool,
     reranker_spec: &Option<String>,
+    state: &AppState,
 ) -> anyhow::Result<CognitiveResult> {
     if let Some(spec) = reranker_spec {
-        let reranker = build_api_reranker(spec)?;
+        let reranker = build_api_reranker(spec, state).await?;
         if no_markdown {
             crate::semantic::cognitive_chunk_plain_with_reranker(text, provider, config, &reranker)
                 .await
@@ -300,8 +258,13 @@ async fn run_cognitive<P: EmbeddingProvider>(
 
 /// Parse a reranker spec string and construct the appropriate provider.
 ///
-/// Accepted: `"nvidia"`, `"cohere"`, `"onnx:<path>"`, or a bare path.
-fn build_api_reranker(spec: &str) -> anyhow::Result<crate::embeddings::reranker::AnyReranker> {
+/// Accepted: `"nvidia"`, `"cohere"`, `"cloudflare"`, `"oauth"`,
+/// `"onnx:<path>"`, or a bare path. ONNX paths are validated against the
+/// server's `--onnx-model-dir` allowlist and loaded models are cached.
+async fn build_api_reranker(
+    spec: &str,
+    state: &AppState,
+) -> anyhow::Result<crate::embeddings::reranker::AnyReranker> {
     use crate::embeddings::reranker::AnyReranker;
 
     match spec.to_lowercase().as_str() {
@@ -323,7 +286,23 @@ fn build_api_reranker(spec: &str) -> anyhow::Result<crate::embeddings::reranker:
         }
         other => {
             let path = other.strip_prefix("onnx:").unwrap_or(other);
-            let reranker = crate::embeddings::reranker::OnnxReranker::new(path)?;
+            let path = super::validation::validate_model_path(path, &state.onnx_model_dir)?;
+
+            if let Some(cached) = state.onnx_rerankers.lock().unwrap().get(&path) {
+                return Ok(AnyReranker::Onnx(Box::new(cached.clone())));
+            }
+
+            let path_str = path.to_string_lossy().into_owned();
+            let reranker = tokio::task::spawn_blocking(move || {
+                crate::embeddings::reranker::OnnxReranker::new(&path_str)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("ONNX reranker load task panicked: {e}"))??;
+            state
+                .onnx_rerankers
+                .lock()
+                .unwrap()
+                .insert(path, reranker.clone());
             Ok(AnyReranker::Onnx(Box::new(reranker)))
         }
     }
@@ -387,27 +366,4 @@ fn build_response(
         },
         signals,
     }
-}
-
-fn resolve_openai_key(flag: &Option<String>) -> anyhow::Result<String> {
-    if let Some(key) = flag {
-        return Ok(key.clone());
-    }
-    if let Ok(key) = std::env::var("OPENAI_API_KEY")
-        && !key.is_empty()
-    {
-        return Ok(key);
-    }
-    if let Ok(content) = std::fs::read_to_string(".env.openai") {
-        for line in content.lines() {
-            let line = line.trim();
-            if let Some(val) = line.strip_prefix("OPENAI_API_KEY=") {
-                let val = val.trim();
-                if !val.is_empty() {
-                    return Ok(val.to_string());
-                }
-            }
-        }
-    }
-    anyhow::bail!("OpenAI API key not found.")
 }

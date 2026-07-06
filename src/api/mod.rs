@@ -9,10 +9,12 @@ pub mod evaluate;
 pub mod health;
 pub mod intent;
 pub mod merge;
+pub mod provider;
 pub mod semantic;
 pub mod split;
 pub mod topo;
 pub mod types;
+pub mod validation;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -37,7 +39,7 @@ use tower_http::timeout::TimeoutLayer;
 const API_BODY_LIMIT: usize = 10 * 1024 * 1024;
 
 /// Shared application state.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AppState {
     /// Optional API key for bearer auth.
     pub api_key: Option<String>,
@@ -45,6 +47,25 @@ pub struct AppState {
     pub allow_private_urls: bool,
     /// Allowed CORS origins (empty = deny all browser cross-origin requests).
     pub cors_origins: Vec<String>,
+    /// Directory that client-supplied ONNX model paths must resolve into.
+    /// `None` disables model loading via the API entirely.
+    pub onnx_model_dir: Option<std::path::PathBuf>,
+    /// Loaded ONNX embedding providers, keyed by canonical model directory.
+    /// Sessions are expensive to load; clones share the underlying session.
+    pub onnx_providers: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<std::path::PathBuf, crate::embeddings::onnx::OnnxProvider>,
+        >,
+    >,
+    /// Loaded ONNX rerankers, keyed by canonical model directory.
+    pub onnx_rerankers: Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                std::path::PathBuf,
+                crate::embeddings::reranker::OnnxReranker,
+            >,
+        >,
+    >,
 }
 
 /// Build the Axum router with all API routes.
@@ -134,7 +155,30 @@ async fn auth_middleware(
         .and_then(|v| v.strip_prefix("Bearer "));
 
     match auth_header {
-        Some(token) if token == expected_key => Ok(next.run(request).await),
+        Some(token) if verify_api_key(token, expected_key) => Ok(next.run(request).await),
         _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+/// Constant-time API key comparison.
+///
+/// A plain `==` short-circuits on the first mismatched byte, which leaks
+/// key-prefix information through response timing on a network-exposed
+/// server. Only the key length is observable here.
+fn verify_api_key(provided: &str, expected: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    provided.as_bytes().ct_eq(expected.as_bytes()).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_api_key() {
+        assert!(verify_api_key("secret-key", "secret-key"));
+        assert!(!verify_api_key("secret-kez", "secret-key"));
+        assert!(!verify_api_key("secret", "secret-key"));
+        assert!(!verify_api_key("", "secret-key"));
     }
 }

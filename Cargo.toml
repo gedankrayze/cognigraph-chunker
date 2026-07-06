@@ -3,9 +3,24 @@ members = [".", "packages/python"]
 
 [package]
 name = "cognigraph-chunker"
-version = "2.1.0"
+version = "2.2.4"
 edition = "2024"
 license = "MIT"
+description = "Fast text chunking toolkit: fixed-size, delimiter, semantic, cognition-aware, intent-driven, topology-aware, enriched, and adaptive strategies with CLI, REST API, and Python bindings"
+repository = "https://github.com/gedankrayze/cognigraph-chunker"
+readme = "README.md"
+keywords = ["chunking", "rag", "embeddings", "nlp", "text-processing"]
+categories = ["text-processing", "command-line-utilities"]
+exclude = [
+    "docs/",
+    "tests/python/",
+    "packages/",
+    ".github/",
+    "models/",
+    ".env*",
+    ".claude/",
+    ".DS_Store",
+]
 
 [lib]
 name = "cognigraph_chunker"
@@ -32,13 +47,34 @@ serde_json = "1.0"
 tokio = { version = "1.51", features = ["full"] }
 
 # HTTP client (embedding providers)
-reqwest = { version = "0.13", features = ["json", "form"] }
+# rustls instead of the default native-tls: no system OpenSSL dependency,
+# so wheels build in the manylinux container and binaries stay portable.
+# rustls-no-provider (not `rustls`) avoids the default aws-lc-sys crypto
+# backend, which fails to cross-compile for aarch64 in the manylinux
+# container; we install the `ring` provider ourselves (see http_util).
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "form",
+    "charset",
+    "http2",
+    "rustls-no-provider",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
-# ONNX Runtime (local embeddings)
-ort = { version = "2.0.0-rc.11", features = ["ndarray", "load-dynamic"] }
+# ONNX Runtime (local embeddings). We re-enable ort's default features
+# EXCEPT `download-binaries` + `tls-native`, whose ureq → native-tls →
+# openssl-sys build chain fails in the manylinux wheel container. We load
+# the runtime dynamically, so no download/TLS machinery is needed.
+ort = { version = "2.0.0-rc.11", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "api-24",
+    "load-dynamic",
+] }
 
 # Tokenizer (for ONNX models)
-tokenizers = "0.22"
+tokenizers = "0.23"
 
 # N-dimensional arrays (used by ort)
 ndarray = "0.17"
@@ -61,6 +97,12 @@ tower-http = { version = "0.7", features = ["cors", "timeout", "limit"] }
 
 # URL parsing (SSRF validation)
 url = "2"
+
+# Constant-time comparison for API key auth
+subtle = "2"
+
+# Bounded-concurrency streams for LLM/reranker fan-out
+futures = "0.3"
 
 # Error handling
 anyhow = "1.0"

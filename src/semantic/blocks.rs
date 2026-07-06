@@ -71,33 +71,31 @@ pub fn split_blocks(text: &str) -> Vec<Block<'_>> {
                     }
                 }
             }
-            Event::End(_) => {
-                if compound_start.is_some() {
-                    depth -= 1;
-                    if depth == 0 {
-                        let (start, kind) = compound_start.take().unwrap();
-                        let end = range.end;
-                        let block_text = &text[start..end];
+            Event::End(_) if compound_start.is_some() => {
+                depth -= 1;
+                if depth == 0 {
+                    let (start, kind) = compound_start.take().unwrap();
+                    let end = range.end;
+                    let block_text = &text[start..end];
 
-                        match kind {
-                            BlockKind::Sentence => {
-                                // Sentence-split paragraphs
-                                for sent in split_sentences(block_text) {
-                                    blocks.push(Block {
-                                        text: sent.text,
-                                        offset: start + sent.offset,
-                                        kind: BlockKind::Sentence,
-                                    });
-                                }
-                            }
-                            _ => {
-                                // Atomic block — keep whole
+                    match kind {
+                        BlockKind::Sentence => {
+                            // Sentence-split paragraphs
+                            for sent in split_sentences(block_text) {
                                 blocks.push(Block {
-                                    text: block_text.trim_end_matches('\n'),
-                                    offset: start,
-                                    kind,
+                                    text: sent.text,
+                                    offset: start + sent.offset,
+                                    kind: BlockKind::Sentence,
                                 });
                             }
+                        }
+                        _ => {
+                            // Atomic block — keep whole
+                            blocks.push(Block {
+                                text: block_text.trim_end_matches('\n'),
+                                offset: start,
+                                kind,
+                            });
                         }
                     }
                 }

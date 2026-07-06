@@ -361,6 +361,23 @@ mod tests {
     }
 
     #[test]
+    fn test_hard_split_respects_utf8_boundaries() {
+        // 100 × 'é' (2 bytes each) with no delimiters present and an odd
+        // chunk size: naive hard splits land mid-codepoint.
+        let text = "é".repeat(100);
+        let chunks: Vec<&[u8]> = chunk(text.as_bytes()).size(5).collect();
+        let mut total = 0;
+        for c in &chunks {
+            assert!(
+                std::str::from_utf8(c).is_ok(),
+                "hard split bisected a UTF-8 character: {c:?}"
+            );
+            total += c.len();
+        }
+        assert_eq!(total, text.len(), "all bytes must be preserved");
+    }
+
+    #[test]
     fn test_empty_text() {
         let text = b"";
         let chunks: Vec<_> = chunk(text).size(10).delimiters(b".").collect();

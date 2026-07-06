@@ -4,7 +4,7 @@
 //! Compatible with models exported from HuggingFace (e.g., all-MiniLM-L6-v2).
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
 use ort::session::Session;
@@ -18,9 +18,13 @@ use super::{EmbeddingProvider, ensure_onnx_runtime_available};
 /// Expects a directory containing:
 /// - `model.onnx` (the ONNX model)
 /// - `tokenizer.json` (HuggingFace tokenizer config)
+///
+/// Cloning is cheap (the session and tokenizer are shared), which lets the
+/// API server cache one loaded model across requests.
+#[derive(Clone)]
 pub struct OnnxProvider {
-    session: Mutex<Session>,
-    tokenizer: Tokenizer,
+    session: Arc<Mutex<Session>>,
+    tokenizer: Arc<Tokenizer>,
 }
 
 impl OnnxProvider {
@@ -57,8 +61,8 @@ impl OnnxProvider {
             .map_err(|e| anyhow::anyhow!("Failed to load tokenizer: {}", e))?;
 
         Ok(Self {
-            session: Mutex::new(session),
-            tokenizer,
+            session: Arc::new(Mutex::new(session)),
+            tokenizer: Arc::new(tokenizer),
         })
     }
 }
@@ -135,65 +139,88 @@ fn extract_embeddings(
     }
 }
 
+/// Maximum inputs per inference pass — bounds the padded tensor size
+/// (batch × longest sequence) and keeps blocking-pool tasks short.
+const MAX_BATCH: usize = 64;
+
 impl EmbeddingProvider for OnnxProvider {
     async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f64>>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
+        let mut out = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(MAX_BATCH) {
+            // Tokenization + inference are CPU-bound and can run for
+            // hundreds of milliseconds: keep them off the async runtime so
+            // concurrent requests (and health checks) stay responsive.
+            let owned: Vec<String> = batch.iter().map(|s| s.to_string()).collect();
+            let session = self.session.clone();
+            let tokenizer = self.tokenizer.clone();
+            let embeddings =
+                tokio::task::spawn_blocking(move || run_inference(&session, &tokenizer, &owned))
+                    .await
+                    .context("ONNX inference task panicked")??;
+            out.extend(embeddings);
         }
-
-        let encodings = self
-            .tokenizer
-            .encode_batch(texts.to_vec(), true)
-            .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
-
-        let batch_size = encodings.len();
-        let max_len = encodings
-            .iter()
-            .map(|e| e.get_ids().len())
-            .max()
-            .unwrap_or(0);
-
-        // Build padded input_ids and attention_mask
-        let mut input_ids: Vec<i64> = Vec::with_capacity(batch_size * max_len);
-        let mut attention_mask: Vec<i64> = Vec::with_capacity(batch_size * max_len);
-
-        for encoding in &encodings {
-            let ids = encoding.get_ids();
-            let mask = encoding.get_attention_mask();
-
-            input_ids.extend(ids.iter().map(|&id| id as i64));
-            input_ids.extend(std::iter::repeat_n(0i64, max_len - ids.len()));
-
-            attention_mask.extend(mask.iter().map(|&m| m as i64));
-            attention_mask.extend(std::iter::repeat_n(0i64, max_len - mask.len()));
-        }
-
-        // token_type_ids: all zeros for single-segment inputs (required by BERT-based models)
-        let token_type_ids: Vec<i64> = vec![0i64; batch_size * max_len];
-
-        let input_ids_value = Value::from_array(([batch_size, max_len], input_ids))
-            .context("Failed to create input_ids ORT value")?;
-        let attention_mask_value = Value::from_array(([batch_size, max_len], attention_mask))
-            .context("Failed to create attention_mask ORT value")?;
-        let token_type_ids_value = Value::from_array(([batch_size, max_len], token_type_ids))
-            .context("Failed to create token_type_ids ORT value")?;
-
-        // Run inference and extract embeddings while session lock is held
-        let mut session = self
-            .session
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
-
-        let outputs = session
-            .run(ort::inputs![
-                input_ids_value,
-                attention_mask_value,
-                token_type_ids_value
-            ])
-            .context("ONNX inference failed")?;
-
-        let embeddings = extract_embeddings(&outputs[0], &encodings, batch_size)?;
-
-        Ok(embeddings)
+        Ok(out)
     }
+}
+
+/// Tokenize a batch and run the model (called on the blocking pool).
+fn run_inference(
+    session: &Mutex<Session>,
+    tokenizer: &Tokenizer,
+    texts: &[String],
+) -> Result<Vec<Vec<f64>>> {
+    if texts.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let encodings = tokenizer
+        .encode_batch(texts.to_vec(), true)
+        .map_err(|e| anyhow::anyhow!("Tokenization failed: {}", e))?;
+
+    let batch_size = encodings.len();
+    let max_len = encodings
+        .iter()
+        .map(|e| e.get_ids().len())
+        .max()
+        .unwrap_or(0);
+
+    // Build padded input_ids and attention_mask
+    let mut input_ids: Vec<i64> = Vec::with_capacity(batch_size * max_len);
+    let mut attention_mask: Vec<i64> = Vec::with_capacity(batch_size * max_len);
+
+    for encoding in &encodings {
+        let ids = encoding.get_ids();
+        let mask = encoding.get_attention_mask();
+
+        input_ids.extend(ids.iter().map(|&id| id as i64));
+        input_ids.extend(std::iter::repeat_n(0i64, max_len - ids.len()));
+
+        attention_mask.extend(mask.iter().map(|&m| m as i64));
+        attention_mask.extend(std::iter::repeat_n(0i64, max_len - mask.len()));
+    }
+
+    // token_type_ids: all zeros for single-segment inputs (required by BERT-based models)
+    let token_type_ids: Vec<i64> = vec![0i64; batch_size * max_len];
+
+    let input_ids_value = Value::from_array(([batch_size, max_len], input_ids))
+        .context("Failed to create input_ids ORT value")?;
+    let attention_mask_value = Value::from_array(([batch_size, max_len], attention_mask))
+        .context("Failed to create attention_mask ORT value")?;
+    let token_type_ids_value = Value::from_array(([batch_size, max_len], token_type_ids))
+        .context("Failed to create token_type_ids ORT value")?;
+
+    // Run inference and extract embeddings while session lock is held
+    let mut session = session
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Session lock poisoned: {}", e))?;
+
+    let outputs = session
+        .run(ort::inputs![
+            input_ids_value,
+            attention_mask_value,
+            token_type_ids_value
+        ])
+        .context("ONNX inference failed")?;
+
+    extract_embeddings(&outputs[0], &encodings, batch_size)
 }

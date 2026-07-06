@@ -63,42 +63,6 @@ pub fn chunks_response(chunks: Vec<(String, usize)>) -> ChunksResponse {
     }
 }
 
-/// Parse delimiter string, interpreting escape sequences like \n, \t.
-pub fn parse_delimiters(s: &str) -> Vec<u8> {
-    let mut result = Vec::new();
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('n') => result.push(b'\n'),
-                Some('t') => result.push(b'\t'),
-                Some('r') => result.push(b'\r'),
-                Some('\\') => result.push(b'\\'),
-                Some(other) => {
-                    result.push(b'\\');
-                    let mut buf = [0u8; 4];
-                    result.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
-                }
-                None => result.push(b'\\'),
-            }
-        } else {
-            let mut buf = [0u8; 4];
-            result.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-        }
-    }
-    result
-}
-
-/// Parse comma-separated patterns, interpreting escape sequences.
-pub fn parse_patterns(s: &str) -> Vec<String> {
-    s.split(',')
-        .map(|p| {
-            let bytes = parse_delimiters(p);
-            String::from_utf8_lossy(&bytes).into_owned()
-        })
-        .collect()
-}
-
 /// Apply merge post-processing if enabled.
 pub fn maybe_merge_api(chunks: Vec<(String, usize)>, params: &MergeParams) -> Vec<(String, usize)> {
     if !params.merge || chunks.len() <= 1 {

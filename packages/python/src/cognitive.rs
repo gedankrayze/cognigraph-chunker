@@ -135,6 +135,7 @@ pub struct PyCognitiveResult {
 
 /// Run cognitive chunking with a provider.
 #[pyfunction]
+#[pyo3(name = "cognitive_chunk")]
 #[pyo3(signature = (text, provider, config=None, *, markdown=true))]
 pub fn py_cognitive_chunk(
     py: Python<'_>,

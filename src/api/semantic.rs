@@ -8,11 +8,6 @@ use axum::extract::State;
 use serde::Deserialize;
 
 use crate::embeddings::EmbeddingProvider;
-use crate::embeddings::cloudflare::{CloudflareProvider, resolve_cloudflare_credentials};
-use crate::embeddings::oauth::{OAuthProvider, resolve_oauth_credentials};
-use crate::embeddings::ollama::OllamaProvider;
-use crate::embeddings::onnx::OnnxProvider;
-use crate::embeddings::openai::OpenAiProvider;
 use crate::semantic::{SemanticConfig, semantic_chunk, semantic_chunk_plain};
 
 use super::AppState;
@@ -38,22 +33,8 @@ fn default_min_distance() -> usize {
 #[derive(Debug, Deserialize)]
 pub struct SemanticRequest {
     pub text: String,
-    #[serde(default = "default_provider")]
-    pub provider: ProviderParam,
-    pub model: Option<String>,
-    pub api_key: Option<String>,
-    pub base_url: Option<String>,
-    pub model_path: Option<String>,
-    pub cf_auth_token: Option<String>,
-    pub cf_account_id: Option<String>,
-    pub cf_ai_gateway: Option<String>,
-    pub oauth_token_url: Option<String>,
-    pub oauth_client_id: Option<String>,
-    pub oauth_client_secret: Option<String>,
-    pub oauth_scope: Option<String>,
-    pub oauth_base_url: Option<String>,
-    #[serde(default)]
-    pub danger_accept_invalid_certs: bool,
+    #[serde(flatten)]
+    pub provider_opts: crate::embeddings::EmbedProviderOpts,
     #[serde(default = "default_sim_window")]
     pub sim_window: usize,
     #[serde(default = "default_sg_window")]
@@ -70,18 +51,26 @@ pub struct SemanticRequest {
     pub merge_params: MergeParams,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ProviderParam {
-    Ollama,
-    Openai,
-    Onnx,
-    Cloudflare,
-    Oauth,
-}
-
-fn default_provider() -> ProviderParam {
-    ProviderParam::Ollama
+/// Check if an IPv4 address is private/loopback/non-routable.
+fn is_private_ipv4(v4: std::net::Ipv4Addr) -> bool {
+    let octets = v4.octets();
+    v4.is_loopback()
+        || v4.is_private()
+        || v4.is_link_local()
+        // 0.0.0.0 connects to localhost on most platforms
+        || v4.is_unspecified()
+        || v4.is_broadcast()
+        || v4.is_multicast()
+        // TEST-NET ranges (192.0.2/24, 198.51.100/24, 203.0.113/24)
+        || v4.is_documentation()
+        // CGNAT 100.64.0.0/10
+        || (octets[0] == 100 && (octets[1] & 0b1100_0000) == 64)
+        // IETF protocol assignments 192.0.0.0/24
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+        // Benchmarking 198.18.0.0/15
+        || (octets[0] == 198 && (octets[1] & 0xfe) == 18)
+        // Reserved 240.0.0.0/4
+        || octets[0] >= 240
 }
 
 /// Check if an IP address is private/loopback/link-local/non-routable.
@@ -90,16 +79,20 @@ fn default_provider() -> ProviderParam {
 /// to IPv4 before checking.
 fn is_private_ip(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V4(v4) => is_private_ipv4(v4),
         IpAddr::V6(v6) => {
-            // Check IPv4-mapped (::ffff:x.x.x.x) and IPv4-compatible (::x.x.x.x) forms
-            if let Some(v4) = v6.to_ipv4_mapped().or_else(|| v6.to_ipv4()) {
-                return v4.is_loopback() || v4.is_private() || v4.is_link_local();
-            }
-
-            if v6.is_loopback() || v6.is_multicast() {
+            // Check loopback (::1) and unspecified (::) BEFORE the IPv4
+            // conversions: the legacy IPv4-compatible form maps ::1 to
+            // 0.0.0.1 and :: to 0.0.0.0, which would misclassify ::1.
+            if v6.is_loopback() || v6.is_unspecified() || v6.is_multicast() {
                 return true;
             }
+
+            // Check IPv4-mapped (::ffff:x.x.x.x) and IPv4-compatible (::x.x.x.x) forms
+            if let Some(v4) = v6.to_ipv4_mapped().or_else(|| v6.to_ipv4()) {
+                return is_private_ipv4(v4);
+            }
+
             let segments = v6.segments();
             // Unique local (fc00::/7): first byte is fc or fd
             let is_unique_local = (segments[0] & 0xfe00) == 0xfc00;
@@ -126,23 +119,35 @@ pub fn validate_base_url(raw: &str, allow_private: bool) -> anyhow::Result<()> {
         "Invalid base_url scheme '{scheme}': must be http or https"
     );
 
-    let host = parsed.host_str().unwrap_or("");
+    // Classify the host via the parsed URL so IPv6 literals ("[::1]") are
+    // treated as IPs and never fall through to the DNS path.
+    let host = match parsed.host() {
+        Some(url::Host::Ipv4(v4)) => {
+            if is_private_ip(IpAddr::V4(v4)) {
+                anyhow::bail!(
+                    "Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)"
+                );
+            }
+            return Ok(());
+        }
+        Some(url::Host::Ipv6(v6)) => {
+            if is_private_ip(IpAddr::V6(v6)) {
+                anyhow::bail!(
+                    "Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)"
+                );
+            }
+            return Ok(());
+        }
+        Some(url::Host::Domain(domain)) => domain.to_string(),
+        None => anyhow::bail!("Invalid base_url: missing host"),
+    };
+    let host = host.as_str();
 
     // Reject "localhost"
     if host.eq_ignore_ascii_case("localhost") {
         anyhow::bail!(
             "Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)"
         );
-    }
-
-    // If it's a literal IP, check directly
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_ip(ip) {
-            anyhow::bail!(
-                "Invalid base_url: private/loopback addresses are not allowed (use --allow-private-urls to override)"
-            );
-        }
-        return Ok(());
     }
 
     // For hostnames, resolve DNS and check all resolved IPs.
@@ -175,10 +180,21 @@ pub async fn semantic_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SemanticRequest>,
 ) -> Result<Json<ChunksResponse>, ApiError> {
-    // SSRF validation for base_url
-    if let Some(ref base_url) = req.base_url {
-        validate_base_url(base_url, state.allow_private_urls)?;
-    }
+    // SSRF validation for every user-supplied outbound URL
+    super::validation::validate_outbound_urls(
+        state.allow_private_urls,
+        &[
+            ("base_url", req.provider_opts.base_url.as_deref()),
+            (
+                "oauth_token_url",
+                req.provider_opts.oauth_token_url.as_deref(),
+            ),
+            (
+                "oauth_base_url",
+                req.provider_opts.oauth_base_url.as_deref(),
+            ),
+        ],
+    )?;
 
     let config = SemanticConfig {
         sim_window: req.sim_window,
@@ -189,56 +205,8 @@ pub async fn semantic_handler(
         ..SemanticConfig::default()
     };
 
-    let result = match req.provider {
-        ProviderParam::Ollama => {
-            let provider = OllamaProvider::new(req.base_url.clone(), req.model.clone())?;
-            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
-        }
-        ProviderParam::Openai => {
-            let api_key = resolve_openai_key(&req.api_key)?;
-            let provider = OpenAiProvider::new(api_key, req.base_url.clone(), req.model.clone())?;
-            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
-        }
-        ProviderParam::Onnx => {
-            let model_path = req
-                .model_path
-                .as_deref()
-                .ok_or_else(|| anyhow::anyhow!("model_path is required for onnx provider"))?;
-            let provider = OnnxProvider::new(model_path)?;
-            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
-        }
-        ProviderParam::Cloudflare => {
-            let (token, account_id, gateway) = resolve_cloudflare_credentials(
-                &req.cf_auth_token,
-                &req.cf_account_id,
-                &req.cf_ai_gateway,
-            )?;
-            let provider = CloudflareProvider::new(token, account_id, req.model.clone(), gateway)?;
-            provider.verify_token().await?;
-            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
-        }
-        ProviderParam::Oauth => {
-            let creds = resolve_oauth_credentials(
-                &req.oauth_token_url,
-                &req.oauth_client_id,
-                &req.oauth_client_secret,
-                &req.oauth_scope,
-                &req.oauth_base_url,
-                &req.model,
-            )?;
-            let provider = OAuthProvider::new(
-                creds.token_url,
-                creds.client_id,
-                creds.client_secret,
-                creds.scope,
-                creds.base_url,
-                creds.model,
-                req.danger_accept_invalid_certs,
-            )?;
-            provider.verify_credentials().await?;
-            run_semantic(&req.text, &provider, &config, req.no_markdown).await?
-        }
-    };
+    let provider = super::provider::build_api_provider(&req.provider_opts, &state).await?;
+    let result = run_semantic(&req.text, &provider, &config, req.no_markdown).await?;
 
     let chunks = maybe_merge_api(result, &req.merge_params);
     Ok(Json(chunks_response(chunks)))
@@ -258,31 +226,69 @@ async fn run_semantic<P: EmbeddingProvider>(
     Ok(result.chunks)
 }
 
-/// Resolve OpenAI API key from request, env var, or .env.openai file.
-fn resolve_openai_key(flag: &Option<String>) -> anyhow::Result<String> {
-    if let Some(key) = flag {
-        return Ok(key.clone());
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    if let Ok(key) = std::env::var("OPENAI_API_KEY")
-        && !key.is_empty()
-    {
-        return Ok(key);
-    }
-
-    if let Ok(content) = std::fs::read_to_string(".env.openai") {
-        for line in content.lines() {
-            let line = line.trim();
-            if let Some(val) = line.strip_prefix("OPENAI_API_KEY=") {
-                let val = val.trim();
-                if !val.is_empty() {
-                    return Ok(val.to_string());
-                }
-            }
+    #[test]
+    fn test_is_private_ip_unspecified_and_reserved() {
+        // 0.0.0.0 / :: connect to localhost on most platforms; the others are
+        // non-routable ranges (CGNAT, IETF protocol assignments, benchmarking,
+        // broadcast) that must not be reachable through the SSRF guard.
+        for addr in [
+            "0.0.0.0",
+            "::",
+            "100.64.0.1",
+            "192.0.0.1",
+            "198.18.0.1",
+            "255.255.255.255",
+        ] {
+            assert!(
+                is_private_ip(addr.parse().unwrap()),
+                "{addr} must be treated as non-routable"
+            );
         }
     }
 
-    anyhow::bail!(
-        "OpenAI API key not found. Provide it via the api_key field, OPENAI_API_KEY env var, or .env.openai file."
-    )
+    #[test]
+    fn test_is_private_ip_known_private() {
+        for addr in [
+            "127.0.0.1",
+            "10.0.0.1",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.10.10",
+            "::1",
+            "fe80::1",
+            "fc00::1",
+            "::ffff:127.0.0.1",
+        ] {
+            assert!(is_private_ip(addr.parse().unwrap()), "{addr} is private");
+        }
+    }
+
+    #[test]
+    fn test_is_private_ip_public() {
+        for addr in ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"] {
+            assert!(!is_private_ip(addr.parse().unwrap()), "{addr} is public");
+        }
+    }
+
+    #[test]
+    fn test_validate_base_url_rejects_unspecified() {
+        assert!(
+            validate_base_url("http://0.0.0.0:11434", false).is_err(),
+            "0.0.0.0 must be rejected"
+        );
+        assert!(
+            validate_base_url("http://[::]:11434", false).is_err(),
+            ":: must be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_base_url_allows_override() {
+        assert!(validate_base_url("http://0.0.0.0:11434", true).is_ok());
+        assert!(validate_base_url("http://127.0.0.1:11434", true).is_ok());
+    }
 }

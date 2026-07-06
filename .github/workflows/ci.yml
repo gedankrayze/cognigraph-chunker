@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # Toolchain (channel + rustfmt/clippy components) comes from
+      # rust-toolchain.toml — rustup installs it on first use.
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -25,9 +25,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - run: rustup show
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+
+  python:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test Python bindings
+        # Build a wheel and install it rather than `maturin develop`, which
+        # requires an active virtualenv the runner doesn't provide.
+        run: |
+          pip install maturin pytest numpy
+          maturin build --out dist --manifest-path packages/python/Cargo.toml
+          pip install dist/*.whl
+          pytest -q tests/python
 
   docker:
     needs: test

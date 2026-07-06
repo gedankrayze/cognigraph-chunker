@@ -10,7 +10,7 @@ pub mod split;
 
 // Re-export primary types and functions
 pub use chunk::{Chunker, OwnedChunker, chunk};
-pub use delim::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
+pub use delim::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, parse_delimiters, parse_patterns};
 pub use merge::{MergeResult, find_merge_indices, merge_splits};
 pub use savgol::{
     FilteredIndices, MinimaResult, filter_split_indices, find_local_minima_interpolated,

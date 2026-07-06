@@ -22,7 +22,7 @@ The seven metadata fields are:
 - **semantic_keys**: normalized concept identifiers (e.g., "xr-7742-dosing", "clinical-protocol") that link chunks covering the same topic
 - **category**: a single label classifying the chunk's role (background, methodology, results, discussion, etc.)
 
-**Key-based recombination** examines the semantic key dictionary after all chunks are enriched. Chunks sharing identical keys are candidates for merging. The recombination uses a bin-packing strategy: same-key chunks that are also adjacent in document order are merged first, then non-adjacent same-key chunks are merged if the combined size fits within the hard budget. Chunks with unique keys remain untouched.
+**Key-based recombination** examines the semantic key dictionary after all chunks are enriched. When exactly two chunks share a key, they are candidates for merging. The recombination is greedy: adjacent same-key pairs are merged first, then non-adjacent pairs, in every case only if the combined size fits within the hard budget. Chunks with unique keys remain untouched.
 
 **Re-enrichment** runs only on chunks that were actually merged. Since the merged chunk has new content, its title and summary are updated via a lightweight LLM call. Keywords, entities, questions, and keys from the constituent chunks are preserved as a union -- no information is lost.
 

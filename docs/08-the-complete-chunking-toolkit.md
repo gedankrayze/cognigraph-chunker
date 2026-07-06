@@ -90,7 +90,7 @@ cognigraph-chunker intent -i document.md -p openai --api-key $OPENAI_API_KEY
 
 ### 6. Enriched chunking
 
-Produces self-describing chunks. Each chunk carries seven metadata fields extracted in a single LLM call: title, summary, keywords, typed entities, hypothetical questions, semantic keys, and category. Initial grouping is purely structural (no embeddings needed). The semantic keys create a rolling concept dictionary -- when the LLM processes chunks sequentially, it reuses keys for recurring concepts, creating explicit links between chunks. A recombination step merges chunks sharing the same keys using bin-packing.
+Produces self-describing chunks. Each chunk carries seven metadata fields extracted in a single LLM call: title, summary, keywords, typed entities, hypothetical questions, semantic keys, and category. Initial grouping is purely structural (no embeddings needed). The semantic keys create a rolling concept dictionary -- when the LLM processes chunks sequentially, it reuses keys for recurring concepts, creating explicit links between chunks. A recombination step greedily merges chunk pairs sharing the same keys (adjacent pairs first, within the token budget).
 
 This is the right choice when your retrieval pipeline supports hybrid search (BM25 + dense vectors), when you need HyDE-style retrieval, or when chunks need to be self-describing for downstream consumers that cannot access the original document. See [Article 12](12-enriched-chunking.md) for the full pipeline description.
 
@@ -126,7 +126,7 @@ The five quality metrics, each scored 0.0 to 1.0:
 - **Intrachunk Cohesion** -- mean sentence-to-chunk cosine similarity (is each chunk about one thing?)
 - **Contextual Coherence** -- cosine similarity between adjacent chunks (smooth transitions?)
 - **Block Integrity** -- fraction of structural elements (tables, code, lists) preserved intact
-- **Reference Completeness** -- absence of orphaned pronouns and dangling entity references at boundaries
+- **Reference Completeness** -- absence of chunks that open with an orphaned pronoun or demonstrative
 
 The full quality report is available with the `--report` flag, providing side-by-side comparison of how each candidate performed. See [Article 13](13-adaptive-chunking.md) for the full pipeline description.
 

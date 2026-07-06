@@ -5,7 +5,7 @@
 //! This avoids O(n) expensive inference calls — typically only 10–20%
 //! of boundaries are ambiguous.
 
-use super::cognitive_types::{BlockEnvelope, BoundarySignal};
+use super::cognitive_types::{BlockEnvelope, BoundarySignal, CognitiveWeights};
 use crate::embeddings::reranker::RerankerProvider;
 
 /// Identify ambiguous boundary indices.
@@ -46,40 +46,67 @@ pub fn find_ambiguous_boundaries(signals: &[BoundarySignal], band_width: f64) ->
 ///
 /// `reranker_weight` controls how much the reranker overrides the
 /// original score (0.0 = no effect, 1.0 = full replacement).
+/// `weights` are the scoring weights used to build the join scores; the
+/// similarity delta must re-enter the join score through them.
 pub async fn refine_boundaries<R: RerankerProvider>(
     blocks: &[BlockEnvelope],
     signals: &mut [BoundarySignal],
     ambiguous_indices: &[usize],
     reranker: &R,
     reranker_weight: f64,
+    weights: &CognitiveWeights,
 ) -> anyhow::Result<usize> {
+    use futures::stream::{FuturesOrdered, StreamExt};
+
     if ambiguous_indices.is_empty() {
         return Ok(0);
     }
 
+    /// Concurrent rerank calls per refinement group — each boundary is an
+    /// independent HTTP round trip (or blocking-pool inference).
+    const RERANK_CONCURRENCY: usize = 4;
+
+    // Score boundaries in concurrent groups, then apply the updates
+    // sequentially (signals can't be mutated from within the futures).
+    // Futures are built in a plain loop rather than a stream::map closure:
+    // async-fn-in-trait futures inside closures trip HRTB inference.
+    let valid: Vec<usize> = ambiguous_indices
+        .iter()
+        .copied()
+        .filter(|&idx| idx < signals.len() && idx + 1 < blocks.len())
+        .collect();
+
+    let mut scored: Vec<(usize, f64)> = Vec::with_capacity(valid.len());
+    for group in valid.chunks(RERANK_CONCURRENCY) {
+        let mut futures = FuturesOrdered::new();
+        for &idx in group {
+            futures.push_back(async move {
+                let text_a = blocks[idx].text.as_str();
+                let text_b = blocks[idx + 1].text.as_str();
+                let scores = reranker.rerank(text_a, &[text_b]).await?;
+                Ok::<_, anyhow::Error>((idx, scores.first().copied().unwrap_or(0.5)))
+            });
+        }
+        while let Some(result) = futures.next().await {
+            scored.push(result?);
+        }
+    }
+
     let mut refined_count = 0;
 
-    for &idx in ambiguous_indices {
-        if idx >= signals.len() || idx + 1 >= blocks.len() {
-            continue;
-        }
-
-        let text_a = blocks[idx].text.as_str();
-        let text_b = blocks[idx + 1].text.as_str();
-
-        // Get reranker score for this pair
-        let scores = reranker.rerank(text_a, &[text_b]).await?;
-        let reranker_score = scores.first().copied().unwrap_or(0.5);
-
+    for (idx, reranker_score) in scored {
         // Blend reranker score with original semantic similarity
         let original_sim = signals[idx].semantic_similarity;
         let blended_sim = original_sim * (1.0 - reranker_weight) + reranker_score * reranker_weight;
 
-        // Update the signal with refined scores
+        // Update the signal with refined scores. Similarity enters the join
+        // score twice — +w_sem * sim and -w_shift * (1 - sim) — so a
+        // similarity delta moves the join score by (w_sem + w_shift) * delta.
         let old_join = signals[idx].join_score;
         let sim_delta = blended_sim - original_sim;
         signals[idx].semantic_similarity = blended_sim;
-        signals[idx].join_score += sim_delta;
+        signals[idx].topic_shift_penalty = 1.0 - blended_sim;
+        signals[idx].join_score += (weights.w_sem + weights.w_shift) * sim_delta;
         signals[idx].reasons.push(format!(
             "reranked: {old_join:.3} → {:.3}",
             signals[idx].join_score
@@ -161,5 +188,113 @@ mod tests {
     fn test_find_ambiguous_empty() {
         let ambiguous = find_ambiguous_boundaries(&[], 0.5);
         assert!(ambiguous.is_empty());
+    }
+
+    struct FixedReranker(f64);
+
+    impl RerankerProvider for FixedReranker {
+        async fn rerank(&self, _query: &str, documents: &[&str]) -> anyhow::Result<Vec<f64>> {
+            Ok(vec![self.0; documents.len()])
+        }
+        fn model_name(&self) -> &str {
+            "fixed"
+        }
+    }
+
+    fn make_env(index: usize) -> BlockEnvelope {
+        BlockEnvelope {
+            text: format!("Block {index}."),
+            offset_start: index * 10,
+            offset_end: index * 10 + 8,
+            block_type: crate::semantic::blocks::BlockKind::Sentence,
+            heading_path: vec![],
+            embedding: None,
+            entities: vec![],
+            noun_phrases: vec![],
+            discourse_markers: vec![],
+            continuation_flags: Default::default(),
+            token_estimate: 2,
+        }
+    }
+
+    struct SlowCountingReranker {
+        current: std::sync::atomic::AtomicUsize,
+        max_seen: std::sync::atomic::AtomicUsize,
+    }
+
+    impl RerankerProvider for SlowCountingReranker {
+        async fn rerank(&self, _query: &str, documents: &[&str]) -> anyhow::Result<Vec<f64>> {
+            use std::sync::atomic::Ordering;
+            let now = self.current.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_seen.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            self.current.fetch_sub(1, Ordering::SeqCst);
+            Ok(vec![0.9; documents.len()])
+        }
+        fn model_name(&self) -> &str {
+            "slow-counting"
+        }
+    }
+
+    #[tokio::test]
+    async fn test_refine_scores_boundaries_concurrently() {
+        // 6 ambiguous boundaries against a reranker with 50ms latency:
+        // sequential scoring wastes 6 round trips; refinement must overlap
+        // the rerank calls.
+        let blocks: Vec<BlockEnvelope> = (0..7).map(make_env).collect();
+        let mut signals: Vec<BoundarySignal> = (0..6).map(|i| make_signal(i, 0.5)).collect();
+        let weights = CognitiveWeights::default();
+        let reranker = SlowCountingReranker {
+            current: Default::default(),
+            max_seen: Default::default(),
+        };
+
+        let refined = refine_boundaries(
+            &blocks,
+            &mut signals,
+            &[0, 1, 2, 3, 4, 5],
+            &reranker,
+            0.7,
+            &weights,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(refined, 6);
+        assert!(
+            reranker.max_seen.load(std::sync::atomic::Ordering::SeqCst) >= 2,
+            "rerank calls must overlap, max in-flight was {}",
+            reranker.max_seen.load(std::sync::atomic::Ordering::SeqCst)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_refine_applies_weighted_similarity_delta() {
+        // Reranker says similarity 1.0 with full weight: delta = 0.5.
+        // Similarity affects the join score with derivative w_sem + w_shift,
+        // so join must move by (0.30 + 0.15) * 0.5 = 0.225, not by 0.5.
+        let blocks = vec![make_env(0), make_env(1)];
+        let mut signals = vec![make_signal(0, 0.5)];
+        let weights = CognitiveWeights::default();
+        let reranker = FixedReranker(1.0);
+
+        refine_boundaries(&blocks, &mut signals, &[0], &reranker, 1.0, &weights)
+            .await
+            .unwrap();
+
+        assert!(
+            (signals[0].semantic_similarity - 1.0).abs() < 1e-9,
+            "similarity should be fully replaced"
+        );
+        assert!(
+            (signals[0].join_score - 0.725).abs() < 1e-9,
+            "join score must move by (w_sem + w_shift) * delta, got {}",
+            signals[0].join_score
+        );
+        assert!(
+            signals[0].topic_shift_penalty.abs() < 1e-9,
+            "topic shift penalty must stay consistent with the new similarity, got {}",
+            signals[0].topic_shift_penalty
+        );
     }
 }

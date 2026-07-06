@@ -24,7 +24,7 @@ def test_semantic_chunk_ollama():
     )
     provider = cc.OllamaProvider(model="nomic-embed-text")
     config = cc.SemanticConfig(threshold=0.3)
-    result = cc.py_semantic_chunk(text, provider, config, markdown=False)
+    result = cc.semantic_chunk(text, provider, config, markdown=False)
     assert len(result.chunks) >= 1
     assert all(isinstance(c, tuple) and len(c) == 2 for c in result.chunks)
 
@@ -41,4 +41,4 @@ def test_semantic_config_defaults():
 
 def test_provider_type_error():
     with pytest.raises(TypeError):
-        cc.py_semantic_chunk("hello", "not_a_provider")
+        cc.semantic_chunk("hello", "not_a_provider")

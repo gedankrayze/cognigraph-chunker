@@ -28,9 +28,9 @@ In cognitive chunking, the boundary decision is a weighted combination of eight 
 
 **Orphan risk** (weight 0.20) — penalizes splits that would leave a chunk starting with a pronoun ("It processes the data") or a demonstrative ("This approach reduces latency") with no antecedent. These are the splits that make a reader — or an LLM — ask "what does 'it' refer to?"
 
-**Budget pressure** (weight 0.10) — a soft signal that increases as accumulated tokens approach the soft budget ceiling. This prevents the other signals from creating unboundedly large chunks.
+**Budget pressure** (weight 0.10) — a soft signal that increases as the tokens accumulated since the last split approach the soft budget ceiling. Unlike the other signals, it is applied during assembly rather than initial scoring: after a first valley pass places tentative splits, the token accumulator resets at each one, and a second valley pass catches any boundaries the pressure pushed down. This prevents the other signals from creating unboundedly large chunks.
 
-The weighted combination produces a **join score** for each boundary. Higher means "keep together." The assembly stage finds valleys in the join score curve (the same local-minima detection used in semantic chunking) and places splits there. A hard token ceiling forces additional splits if the join scores are uniformly high.
+The weighted combination produces a **join score** for each boundary. Higher means "keep together." The assembly stage finds valleys in the join score curve — local minima that fall below an adaptive threshold (the mean minus half a standard deviation) — and places splits there. A hard token ceiling forces additional splits if the join scores are uniformly high.
 
 ## Enrichment: what the pipeline knows about each block
 

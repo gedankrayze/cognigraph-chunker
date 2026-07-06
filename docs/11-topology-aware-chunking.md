@@ -32,7 +32,7 @@ The Refiner outputs a partition: a list of chunk groups, each specifying which s
 
 ## Context window handling
 
-Long documents may produce a SIR that exceeds the LLM's context window. When the SIR JSON exceeds 80% of the model's context window, large content blocks are summarized to their first and last 100 characters plus token counts. Cross-reference edges are preserved even when block text is truncated. The Refiner receives full text only for sections classified as splittable, not the entire document.
+Long documents may produce a SIR that exceeds the LLM's context window. Each SIR node carries only a 200-character preview of its content plus a token estimate rather than the full text, and the serialized SIR sent to the agents is capped at 100 KB. The Refiner receives full text only for sections classified as splittable, not the entire document.
 
 ## What the output contains
 

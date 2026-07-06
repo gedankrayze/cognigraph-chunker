@@ -16,7 +16,7 @@ Each metric is scored from 0.0 to 1.0. Together they measure whether the chunks 
 
 **Block Integrity (BI)** measures whether structural elements are preserved intact. It counts the fraction of tables, code blocks, lists, and block quotes that are fully contained within a single chunk rather than split across boundaries. A score of 1.0 means no structural element is broken.
 
-**Reference Completeness (RC)** measures whether chunks start with unresolved references. For each chunk boundary, it checks whether the next chunk begins with a pronoun or demonstrative that has no antecedent in the same chunk, and whether entities introduced in the previous chunk are orphaned. RC maps directly to the orphan risk and entity continuity signals from cognitive chunking.
+**Reference Completeness (RC)** measures whether chunks start with unresolved references. For each chunk boundary, it checks whether the next chunk begins with a pronoun or demonstrative -- a reference whose antecedent is stranded in the previous chunk. RC maps directly to the orphan risk signal from cognitive chunking.
 
 The five metrics are combined into a composite score with configurable weights. The default is equal weighting (0.20 each). Custom weights let you prioritize what matters for your use case: a RAG pipeline might weight ICC and RC higher; a structural preservation pipeline might weight BI higher.
 
@@ -39,11 +39,11 @@ The full quality report is available in the output (JSON format, `--report` flag
 
 ## Configuration
 
-**`--candidates`** restricts which methods are evaluated. Default: `semantic,cognitive,intent,enriched,topo`. Restricting candidates reduces cost but may miss the best method.
+**`--candidates`** restricts which methods are evaluated. The default is `semantic,cognitive`; when an OpenAI API key is resolvable (via `--api-key`, `OPENAI_API_KEY`, or `.env.openai`), it expands to all five: `semantic,cognitive,intent,enriched,topo`. Restricting candidates reduces cost but may miss the best method.
 
 **`--force-candidates`** bypasses pre-screening heuristics, running all specified candidates regardless of document characteristics.
 
-**`--metric-weights`** sets custom weights for the composite score. Format: `sc=0.15,icc=0.25,dcc=0.20,bi=0.20,rc=0.20`. Weights must sum to 1.0.
+**`--metric-weights`** sets custom weights for the composite score. Format: `sc=0.15,icc=0.25,dcc=0.20,bi=0.20,rc=0.20`. Weights should sum to 1.0; they are applied as given, without normalization.
 
 **`--soft-budget`** and **`--hard-budget`** are passed through to all candidate methods.
 
@@ -78,7 +78,7 @@ POST /api/v1/adaptive
   "provider": "openai",
   "model": "text-embedding-3-small",
   "api_key": "...",
-  "candidates": ["semantic", "cognitive", "intent", "enriched"],
+  "candidates": "semantic,cognitive,intent,enriched",
   "soft_budget": 512,
   "hard_budget": 768,
   "metric_weights": { "sc": 0.20, "icc": 0.20, "dcc": 0.20, "bi": 0.20, "rc": 0.20 },

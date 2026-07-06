@@ -53,17 +53,31 @@ pub fn assemble_chunks(
         }
     }
 
+    // Step 1b: Apply soft-budget pressure now that tentative breaks are known
+    // (scoring can't do this — the accumulator must reset at each break),
+    // then run a second valley pass to catch boundaries the pressure pushed
+    // below threshold.
+    apply_soft_budget_pressure(blocks, &mut signals, config);
+    let pressured_scores: Vec<f64> = signals.iter().map(|s| s.join_score).collect();
+    for idx in detect_valleys(&pressured_scores) {
+        if idx < signals.len() {
+            signals[idx].is_break = true;
+        }
+    }
+
     // Step 2: Apply hard budget ceiling as forced breaks
     apply_budget_breaks(blocks, &mut signals, config.hard_budget);
 
     // Step 3: Assemble chunks
     let chunks = build_chunks(blocks, &signals);
 
-    // Step 3b: Proposition-aware healing — merge chunks with broken propositions
+    // Step 3b: Proposition-aware healing — merge chunks with broken propositions.
+    // Healing clears `is_break` on merged boundaries so the signals (and the
+    // evaluation metrics derived from them) describe the final partition.
     let (mut chunks, _heal_result) = super::proposition_heal::heal_proposition_breaks(
         chunks,
         blocks,
-        &signals,
+        &mut signals,
         config.hard_budget,
     );
 
@@ -131,6 +145,40 @@ fn detect_valleys(scores: &[f64]) -> Vec<usize> {
     }
 
     valleys
+}
+
+/// Apply soft-budget pressure to boundary signals.
+///
+/// Pressure measures how far the *current chunk* has grown toward the soft
+/// budget, so the accumulator resets at every break. This runs after the
+/// initial valley pass; applying it during scoring would make pressure
+/// measure distance from the document start and saturate at 1.0 for every
+/// boundary past ~1.5× the soft budget.
+fn apply_soft_budget_pressure(
+    blocks: &[BlockEnvelope],
+    signals: &mut [BoundarySignal],
+    config: &super::cognitive_types::CognitiveConfig,
+) {
+    if config.soft_budget == 0 {
+        return;
+    }
+
+    let mut accumulated = blocks[0].token_estimate;
+
+    for (i, signal) in signals.iter_mut().enumerate() {
+        accumulated += blocks[i + 1].token_estimate;
+        let pressure = (accumulated as f64 / config.soft_budget as f64 - 0.5).clamp(0.0, 1.0);
+        signal.budget_pressure = pressure;
+        signal.join_score -= config.weights.w_budget * pressure;
+        if pressure > 0.5 {
+            signal
+                .reasons
+                .push(format!("budget pressure ({accumulated} tokens)"));
+        }
+        if signal.is_break {
+            accumulated = blocks[i + 1].token_estimate;
+        }
+    }
 }
 
 /// Apply forced breaks when accumulated tokens exceed hard budget.
@@ -223,7 +271,7 @@ fn create_chunk(
         }
     }
     let mut dominant_entities: Vec<(String, usize)> = entity_counts.into_iter().collect();
-    dominant_entities.sort_by(|a, b| b.1.cmp(&a.1));
+    dominant_entities.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
     let dominant_entities: Vec<String> = dominant_entities
         .into_iter()
         .take(5)
@@ -412,7 +460,103 @@ fn build_shared_entities(
 
 #[cfg(test)]
 mod tests {
+    use super::super::cognitive_types::CognitiveConfig;
     use super::*;
+
+    fn make_env(index: usize, token_estimate: usize) -> BlockEnvelope {
+        BlockEnvelope {
+            text: format!("Block {index}."),
+            offset_start: index * 100,
+            offset_end: index * 100 + 90,
+            block_type: super::super::blocks::BlockKind::Sentence,
+            heading_path: vec![],
+            embedding: None,
+            entities: vec![],
+            noun_phrases: vec![],
+            discourse_markers: vec![],
+            continuation_flags: Default::default(),
+            token_estimate,
+        }
+    }
+
+    fn make_scored_signal(index: usize, join_score: f64) -> BoundarySignal {
+        BoundarySignal {
+            index,
+            semantic_similarity: 0.5,
+            entity_continuity: 0.0,
+            relation_continuity: 0.0,
+            discourse_continuation: 0.0,
+            heading_continuity: 1.0,
+            structural_affinity: 0.0,
+            topic_shift_penalty: 0.5,
+            orphan_risk: 0.0,
+            budget_pressure: 0.0,
+            join_score,
+            is_break: false,
+            reasons: vec![],
+        }
+    }
+
+    #[test]
+    fn test_soft_budget_pressure_resets_at_breaks() {
+        // 6 blocks × 100 tokens, soft budget 250. A clear valley at boundary 1
+        // splits after block 1; the pressure accumulator must restart there
+        // instead of growing monotonically from the document start.
+        let blocks: Vec<BlockEnvelope> = (0..6).map(|i| make_env(i, 100)).collect();
+        let signals: Vec<BoundarySignal> = [0.8, 0.2, 0.8, 0.8, 0.8]
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| make_scored_signal(i, s))
+            .collect();
+        let config = CognitiveConfig {
+            soft_budget: 250,
+            hard_budget: 10_000,
+            ..CognitiveConfig::default()
+        };
+
+        let result = assemble_chunks(&blocks, signals, &config);
+        let s = &result.signals;
+
+        assert!(s[1].is_break, "valley at boundary 1 should be a break");
+        // Boundary 2 covers blocks 2+3 = 200 tokens: 200/250 - 0.5 = 0.3.
+        // Without the reset it would be 400/250 - 0.5, clamped to 1.0.
+        assert!(
+            (s[2].budget_pressure - 0.3).abs() < 1e-6,
+            "pressure must reset after the break at boundary 1, got {}",
+            s[2].budget_pressure
+        );
+        assert!(
+            (s[4].budget_pressure - 1.0).abs() < 1e-6,
+            "pressure should saturate 400 tokens into the second chunk, got {}",
+            s[4].budget_pressure
+        );
+        // Pressure must be reflected in the join score (w_budget = 0.10).
+        assert!(
+            (s[2].join_score - 0.77).abs() < 1e-6,
+            "join score should drop by w_budget * pressure, got {}",
+            s[2].join_score
+        );
+    }
+
+    #[test]
+    fn test_healed_boundaries_cleared_in_signals() {
+        // A valley splits before a pronoun-starting block; proposition healing
+        // merges the chunks back. The returned signals must describe the healed
+        // partition, not the pre-healing one (they feed the evaluation metrics).
+        let mut blocks: Vec<BlockEnvelope> = (0..3).map(|i| make_env(i, 10)).collect();
+        blocks[1].continuation_flags.starts_with_pronoun = true;
+        let signals = vec![make_scored_signal(0, 0.2), make_scored_signal(1, 0.8)];
+        let config = CognitiveConfig::default();
+
+        let result = assemble_chunks(&blocks, signals, &config);
+
+        let break_count = result.signals.iter().filter(|s| s.is_break).count();
+        assert_eq!(
+            break_count,
+            result.chunks.len() - 1,
+            "signals must be consistent with the healed chunk partition"
+        );
+    }
 
     #[test]
     fn test_detect_valleys() {

@@ -174,6 +174,7 @@ fn convert_result(result: EnrichedResult) -> PyEnrichedResult {
 ///     config: Optional EnrichedConfig instance.
 ///     markdown: If True (default), parse input as markdown; otherwise plain text.
 #[pyfunction]
+#[pyo3(name = "enriched_chunk")]
 #[pyo3(signature = (text, api_key, base_url=None, model=None, config=None, *, markdown=true))]
 pub fn py_enriched_chunk(
     _py: Python<'_>,
