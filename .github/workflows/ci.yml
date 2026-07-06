@@ -37,7 +37,7 @@ jobs:
       - run: rustup show
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.14"
       - uses: Swatinem/rust-cache@v2
       - name: Build and test Python bindings
         # Build a wheel and install it rather than `maturin develop`, which
