@@ -45,11 +45,24 @@ Fast text chunking toolkit with fixed-size, delimiter-based, semantic, cognition
 cargo install cognigraph-chunker
 ```
 
-### Python (via maturin)
+Prebuilt CLI binaries for Linux and macOS (x86_64 and arm64) are also
+attached to each [GitHub release](https://github.com/gedankrayze/cognigraph-chunker/releases).
+
+### Python (from PyPI)
 
 ```sh
 pip install cognigraph-chunker
 ```
+
+Prebuilt binary wheels (`abi3`, Python 3.9+) are published for:
+
+| Platform | x86_64 | arm64 / aarch64 |
+|----------|--------|-----------------|
+| Linux (manylinux2014) | ✓ | ✓ |
+| macOS | ✓ | ✓ |
+
+Other platforms (e.g. Windows) build from the source distribution, which
+requires a Rust toolchain.
 
 ### From source
 
